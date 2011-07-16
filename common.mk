@@ -52,6 +52,7 @@ COMMONOBJS    = array.$(OBJEXT) \
 		proc.$(OBJEXT) \
 		file.$(OBJEXT) \
 		gc.$(OBJEXT) \
+		mem_api.$(OBJEXT) \
 		hash.$(OBJEXT) \
 		inits.$(OBJEXT) \
 		io.$(OBJEXT) \
@@ -627,6 +628,7 @@ file.$(OBJEXT): {$(VPATH)}file.c $(RUBY_H_INCLUDES) {$(VPATH)}io.h \
   {$(VPATH)}internal.h
 gc.$(OBJEXT): {$(VPATH)}gc.c $(RUBY_H_INCLUDES) {$(VPATH)}re.h \
   {$(VPATH)}regex.h $(ENCODING_H_INCLUDES) $(VM_CORE_H_INCLUDES) \
+  {$(VPATH)}mem_api.h \
   {$(VPATH)}gc.h {$(VPATH)}io.h {$(VPATH)}eval_intern.h {$(VPATH)}util.h \
   {$(VPATH)}debug.h {$(VPATH)}internal.h {$(VPATH)}constant.h
 hash.$(OBJEXT): {$(VPATH)}hash.c $(RUBY_H_INCLUDES) {$(VPATH)}util.h \

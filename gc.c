@@ -11,6 +11,7 @@
 
 **********************************************************************/
 
+#if ! defined GC_MARK_CHILDREN_H
 #include "ruby/ruby.h"
 #include "ruby/st.h"
 #include "ruby/re.h"
@@ -21,6 +22,7 @@
 #include "internal.h"
 #include "gc.h"
 #include "constant.h"
+#include "mem_api.h"
 #include <stdio.h>
 #include <setjmp.h>
 #include <sys/types.h>
@@ -1140,7 +1142,7 @@ rb_during_gc(void)
 #define RANY(o) ((RVALUE*)(o))
 
 VALUE
-rb_newobj(void)
+rb_newobj_core(void)
 {
     rb_objspace_t *objspace = &rb_objspace;
     VALUE obj;
@@ -1415,7 +1417,7 @@ gc_mark_locations(rb_objspace_t *objspace, VALUE *start, VALUE *end)
 }
 
 void
-rb_gc_mark_locations(VALUE *start, VALUE *end)
+rb_gc_mark_locations_core(VALUE *start, VALUE *end)
 {
     gc_mark_locations(&rb_objspace, start, end);
 }
@@ -1601,6 +1603,11 @@ rb_gc_mark_maybe(VALUE obj)
     }
 }
 
+int rb_gc_markedQ_core(VALUE object)
+{
+  return FL_TEST(object, FL_MARK);
+}
+
 static void
 gc_mark(rb_objspace_t *objspace, VALUE ptr, int lev)
 {
@@ -1629,10 +1636,11 @@ gc_mark(rb_objspace_t *objspace, VALUE ptr, int lev)
 }
 
 void
-rb_gc_mark(VALUE ptr)
+rb_gc_mark_core(VALUE ptr)
 {
     gc_mark(&rb_objspace, ptr, 0);
 }
+#endif /* #if ! defined GC_MARK_CHILDREN_H */
 
 static void
 gc_mark_children(rb_objspace_t *objspace, VALUE ptr, int lev)
@@ -1905,6 +1913,8 @@ gc_mark_children(rb_objspace_t *objspace, VALUE ptr, int lev)
 	       is_pointer_to_heap(objspace, obj) ? "corrupted object" : "non object");
     }
 }
+
+#if ! defined GC_MARK_CHILDREN_H
 
 static int obj_free(rb_objspace_t *, VALUE);
 
@@ -3057,7 +3067,7 @@ rb_objspace_call_finalizer(rb_objspace_t *objspace)
 }
 
 void
-rb_gc(void)
+rb_gc_core(void)
 {
     rb_objspace_t *objspace = &rb_objspace;
     garbage_collect(objspace);
@@ -3620,3 +3630,5 @@ Init_GC(void)
     rb_define_singleton_method(rb_mGC, "malloc_allocations", gc_malloc_allocations, 0);
 #endif
 }
+
+#endif /* #if ! defined GC_MARK_CHILDREN_H */

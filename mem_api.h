@@ -1,6 +1,6 @@
 /**********************************************************************
 
-  gc_api.h - GC internals API.
+  mem_api.h - Memory/GC internals API.
 
   $Author$
   created at: Mon Jan 17 12:09:32 CST 2011
@@ -8,8 +8,8 @@
   Copyright (C) 2010 Kurt Stephens
 
 **********************************************************************/
-#ifndef RUBY_GC_API_H
-#define RUBY_GC_API_H
+#ifndef RUBY_MEM_API_H
+#define RUBY_MEM_API_H
 
 #if defined(__cplusplus)
 extern "C" {
@@ -27,17 +27,22 @@ extern "C" {
 #pragma GCC visibility push(default)
 #endif
 
+typedef struct rb_mem_sys {
+  const char *name;
+  void *data;
+  VALUE (*newobj)(void);
+  void (*gc)(void);
+  void (*gc_mark)(VALUE object);
+  void (*gc_mark_locations)(VALUE *start, VALUE *end);
+  int  (*gc_markedQ)(VALUE object);
+} rb_mem_sys;
+
+#if 0
+VALUE rb_newobj(void);
+void rb_gc(void);
 void rb_gc_mark(VALUE);
-
-#ifdef MBARI_API
-/* #warning "Using REE/MBARI rb_mark_table_contains" */
+#endif
 extern int rb_gc_markedQ(VALUE object);
-#define RB_GC_MARKED(X) (FL_ABLE((X)) ? rb_gc_markedQ((X)) : 0)
-#endif
-
-#ifndef RB_GC_MARKED
-#define RB_GC_MARKED(X) FL_TEST((X), FL_MARK)
-#endif
 
 enum rb_gc_phase {
   RB_GC_PHASE_NONE = 0,

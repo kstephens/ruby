@@ -1,6 +1,6 @@
 /**********************************************************************
 
-  gc_api.c - GC internals API.
+  mem_api.c - Memory/GC internals API.
 
   Author: Kurt Stephens
   created at: Mon Jan 17 12:09:32 CST 2011
@@ -9,12 +9,48 @@
 */
 
 #include "ruby.h"
-#ifdef RUBY_RUBY_H /* ! MRI 1.8 */
-#include "ruby/gc_api.h"
-#else
-#include "gc_api.h"
-#endif
+#include "mem_api.h"
 #include <stdlib.h>
+
+extern void rb_newobj_core();
+extern void rb_gc_core();
+extern void rb_gc_mark_core(VALUE object);
+extern void rb_gc_mark_locations_core(VALUE *start, VALUE *end);
+extern int  rb_gc_markedQ_core(VALUE object);
+static rb_mem_sys ms = {
+  "core",
+  0,
+  rb_newobj_core,
+  rb_gc_core,
+  rb_gc_mark_core,
+  rb_gc_mark_locations_core,
+  rb_gc_markedQ_core,
+};
+
+VALUE rb_newobj(void)
+{
+  return ms.newobj();
+}
+
+void rb_gc(void)
+{
+  ms.gc();
+}
+
+void rb_gc_mark(VALUE obj)
+{
+  ms.gc_mark(obj);
+}
+
+void rb_gc_mark_locations(VALUE *start, VALUE *end)
+{
+  ms.gc_mark_locations(start, end);
+}
+
+int rb_gc_markedQ(VALUE obj)
+{
+  return ms.gc_markedQ(obj);
+}
 
 typedef struct rb_gc_callback {
   struct rb_gc_callback *next, *prev;
