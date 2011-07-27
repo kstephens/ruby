@@ -2481,7 +2481,7 @@ rb_ary_delete_at(VALUE ary, long pos)
  *  or <code>nil</code> if the index is out of range. See also
  *  <code>Array#slice!</code>.
  *
- *     a = %w( ant bat cat dog )
+ *     a = ["ant", "bat", "cat", "dog"]
  *     a.delete_at(2)    #=> "cat"
  *     a                 #=> ["ant", "bat", "dog"]
  *     a.delete_at(99)   #=> nil
@@ -3591,7 +3591,7 @@ rb_ary_uniq(VALUE ary)
  *
  *  Removes +nil+ elements from the array.
  *  Returns +nil+ if no changes were made, otherwise returns
- *  </i>ary</i>.
+ *  <i>ary</i>.
  *
  *     [ "a", nil, "b", nil, "c" ].compact! #=> [ "a", "b", "c" ]
  *     [ "a", "b", "c" ].compact!           #=> nil

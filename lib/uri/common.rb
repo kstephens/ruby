@@ -908,7 +908,7 @@ module URI
       rescue
       end
     end
-    raise ArgumentError, "invalid %-encoding (#{str})" unless /\A(?:%\h\h|[^%]+)*\z/ =~ str
+    raise ArgumentError, "invalid %-encoding (#{str})" unless /\A[^%]*(?:%\h\h[^%]*)*\z/ =~ str
     str.gsub(/\+|%\h\h/, TBLDECWWWCOMP_).force_encoding(enc)
   end
 
@@ -960,7 +960,7 @@ module URI
     end.join('&')
   end
 
-  WFKV_ = '(?:%\h\h|[^%#=;&])' # :nodoc:
+  WFKV_ = '(?:[^%#=;&]*(?:%\h\h[^%#=;&]*)*)' # :nodoc:
 
   # Decode URL-encoded form data from given +str+.
   #
@@ -984,7 +984,7 @@ module URI
   # See URI.decode_www_form_component, URI.encode_www_form
   def self.decode_www_form(str, enc=Encoding::UTF_8)
     return [] if str.empty?
-    unless /\A#{WFKV_}*=#{WFKV_}*(?:[;&]#{WFKV_}*=#{WFKV_}*)*\z/o =~ str
+    unless /\A#{WFKV_}=#{WFKV_}(?:[;&]#{WFKV_}=#{WFKV_})*\z/o =~ str
       raise ArgumentError, "invalid data of application/x-www-form-urlencoded (#{str})"
     end
     ary = []

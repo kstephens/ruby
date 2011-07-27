@@ -225,18 +225,25 @@ rb_warning(const char *fmt, ...)
 
 /*
  * call-seq:
- *    warn(msg)   -> nil
+ *    warn(msg, ...)   -> nil
  *
- * Display the given message (followed by a newline) on STDERR unless
- * warnings are disabled (for example with the <code>-W0</code> flag).
+ * Displays each of the given messages followed by a record separator on
+ * STDERR unless warnings have been disabled (for example with the
+ * <code>-W0</code> flag).
+ *
+ *    warn("warning 1", "warning 2")
+ *
+ *  <em>produces:</em>
+ *
+ *    warning 1
+ *    warning 2
  */
 
 static VALUE
-rb_warn_m(VALUE self, VALUE mesg)
+rb_warn_m(int argc, VALUE *argv, VALUE exc)
 {
-    if (!NIL_P(ruby_verbose)) {
-	rb_io_write(rb_stderr, mesg);
-	rb_io_write(rb_stderr, rb_default_rs);
+    if (!NIL_P(ruby_verbose) && argc > 0) {
+	rb_io_puts(argc, argv, rb_stderr);
     }
     return Qnil;
 }
@@ -801,6 +808,21 @@ rb_name_error(ID id, const char *fmt, ...)
     va_end(args);
 
     argv[1] = ID2SYM(id);
+    exc = rb_class_new_instance(2, argv, rb_eNameError);
+    rb_exc_raise(exc);
+}
+
+void
+rb_name_error_str(VALUE str, const char *fmt, ...)
+{
+    VALUE exc, argv[2];
+    va_list args;
+
+    va_start(args, fmt);
+    argv[0] = rb_vsprintf(fmt, args);
+    va_end(args);
+
+    argv[1] = str;
     exc = rb_class_new_instance(2, argv, rb_eNameError);
     rb_exc_raise(exc);
 }
@@ -1572,7 +1594,7 @@ Init_Exception(void)
 
     rb_mErrno = rb_define_module("Errno");
 
-    rb_define_global_function("warn", rb_warn_m, 1);
+    rb_define_global_function("warn", rb_warn_m, -1);
 }
 
 void
@@ -1705,6 +1727,22 @@ void
 rb_check_frozen(VALUE obj)
 {
     rb_check_frozen_internal(obj);
+}
+
+void
+rb_error_untrusted(VALUE obj)
+{
+    if (rb_safe_level() >= 4) {
+	rb_raise(rb_eSecurityError, "Insecure: can't modify %s",
+		 rb_obj_classname(obj));
+    }
+}
+
+#undef rb_check_trusted
+void
+rb_check_trusted(VALUE obj)
+{
+    rb_check_trusted_internal(obj);
 }
 
 void

@@ -75,6 +75,19 @@ class TestSymbol < Test::Unit::TestCase
     assert_inspect_evaled(':$1')
   end
 
+  def test_inspect
+    valid = %w{$a @a @@a < << <= <=> > >> >= =~ == === * ** + +@ - -@
+    | ^ & / % ~ \` [] []= ! != !~ a a? a! a= A A? A! A=}
+    valid.each do |sym|
+      assert_equal(':' + sym, sym.intern.inspect)
+    end
+
+    invalid = %w{$a? $a! $a= @a? @a! @a= @@a? @@a! @@a= =}
+    invalid.each do |sym|
+      assert_equal(':"' + sym + '"', sym.intern.inspect)
+    end
+  end
+
   def test_to_proc
     assert_equal %w(1 2 3), (1..3).map(&:to_s)
     [
@@ -142,6 +155,79 @@ class TestSymbol < Test::Unit::TestCase
      Encoding::UTF_32LE, Encoding::UTF_32BE].each do |e|
       assert_equal(':"abc"', "abc".encode(e).to_sym.inspect)
       assert_equal(':"\\u3042\\u3044\\u3046"', "\u3042\u3044\u3046".encode(e).to_sym.inspect)
+    end
+  end
+
+  def test_no_inadvertent_symbol_creation
+    feature5072 = '[ruby-core:38367]'
+    c = Class.new
+    s = "gadzooks"
+    {:respond_to? => "#{s}1", :method_defined? => "#{s}2",
+     :public_method_defined? => "#{s}3", :private_method_defined? => "#{s}4",
+     :protected_method_defined? => "#{s}5", :const_defined? => "A#{s}",
+     :instance_variable_defined? => "@#{s}", :class_variable_defined? => "@@#{s}"
+    }.each do |meth, str|
+      msg = "#{meth}(#{str}) #{feature5072}"
+      assert !c.send(meth, str), msg
+      assert !Symbol.all_symbols.any? {|sym| sym.to_s == str}, msg
+    end
+  end
+
+  def test_no_inadvertent_symbol_creation2
+    feature5079 = '[ruby-core:38404]'
+    c = Class.new
+    s = "gadzoooks"
+    {:instance_variable_get => ["@#{s}1", nil],
+     :class_variable_get => ["@@#{s}1", NameError],
+     :remove_instance_variable => ["@#{s}2", NameError],
+     :remove_class_variable => ["@@#{s}2", NameError],
+     :remove_const => ["A#{s}", NameError],
+     :method => ["#{s}1", NameError],
+     :public_method => ["#{s}2", NameError],
+     :instance_method => ["#{s}3", NameError],
+     :public_instance_method => ["#{s}4", NameError],
+    }.each do |meth, arr|
+      str, ret = arr
+      msg = "#{meth}(#{str}) #{feature5079}"
+      if ret.is_a?(Class) && (ret < Exception)
+        assert_raises(ret){c.send(meth, str)}
+      else
+        assert(c.send(meth, str) == ret, msg)
+      end
+      assert !Symbol.all_symbols.any? {|sym| sym.to_s == str}, msg
+    end
+  end
+
+  def test_no_inadvertent_symbol_creation3
+    feature5089 = '[ruby-core:38447]'
+    c = Class.new do
+      def self.alias_method(str)
+        super(:puts, str)
+      end
+    end
+    s = "gadzoooks"
+    {:alias_method => ["#{s}1", NameError],
+     :autoload? => ["#{s}2", nil],
+     :const_get => ["A#{s}3", NameError],
+     :private_class_method => ["#{s}4", NameError],
+     :private_constant => ["#{s}5", NameError],
+     :private => ["#{s}6", NameError],
+     :protected => ["#{s}7", NameError],
+     :public => ["#{s}8", NameError],
+     :public_class_method => ["#{s}9", NameError],
+     :public_constant => ["#{s}10", NameError],
+     :remove_method => ["#{s}11", NameError],
+     :undef_method => ["#{s}12", NameError],
+     :untrace_var => ["#{s}13", NameError],
+    }.each do |meth, arr|
+      str, ret = arr
+      msg = "#{meth}(#{str}) #{feature5089}"
+      if ret.is_a?(Class) && (ret < Exception)
+        assert_raises(ret){c.send(meth, str)}
+      else
+        assert(c.send(meth, str) == ret, msg)
+      end
+      assert !Symbol.all_symbols.any? {|sym| sym.to_s == str}, msg
     end
   end
 end

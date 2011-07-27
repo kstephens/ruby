@@ -209,21 +209,31 @@ VALUE rb_exc_new2(VALUE, const char*);
 VALUE rb_exc_new3(VALUE, VALUE);
 PRINTF_ARGS(NORETURN(void rb_loaderror(const char*, ...)), 1, 2);
 PRINTF_ARGS(NORETURN(void rb_name_error(ID, const char*, ...)), 2, 3);
+PRINTF_ARGS(NORETURN(void rb_name_error_str(VALUE, const char*, ...)), 2, 3);
 NORETURN(void rb_invalid_str(const char*, const char*));
 PRINTF_ARGS(void rb_compile_error(const char*, int, const char*, ...), 3, 4);
 PRINTF_ARGS(void rb_compile_error_with_enc(const char*, int, void *, const char*, ...), 4, 5);
 PRINTF_ARGS(void rb_compile_error_append(const char*, ...), 1, 2);
 NORETURN(void rb_load_fail(const char*));
 NORETURN(void rb_error_frozen(const char*));
+void rb_error_untrusted(VALUE);
 void rb_check_frozen(VALUE);
+void rb_check_trusted(VALUE);
 #define rb_check_frozen_internal(obj) do { \
 	VALUE frozen_obj = (obj); \
 	if (OBJ_FROZEN(frozen_obj)) { \
 	    rb_error_frozen(rb_obj_classname(frozen_obj)); \
 	} \
     } while (0)
+#define rb_check_trusted_internal(obj) do { \
+	VALUE untrusted_obj = (obj); \
+	if (!OBJ_UNTRUSTED(untrusted_obj)) { \
+	    rb_error_untrusted(untrusted_obj); \
+	} \
+    } while (0)
 #ifdef __GNUC__
 #define rb_check_frozen(obj) __extension__({rb_check_frozen_internal(obj);})
+#define rb_check_trusted(obj) __extension__({rb_check_trusted_internal(obj);})
 #else
 static inline void
 rb_check_frozen_inline(VALUE obj)
@@ -231,6 +241,12 @@ rb_check_frozen_inline(VALUE obj)
     rb_check_frozen_internal(obj);
 }
 #define rb_check_frozen(obj) rb_check_frozen_inline(obj)
+static inline void
+rb_check_trusted_inline(VALUE obj)
+{
+    rb_check_trusted_internal(obj);
+}
+#define rb_check_trusted(obj) rb_check_trusted_inline(obj)
 #endif
 
 /* eval.c */
@@ -484,6 +500,7 @@ void rb_close_before_exec(int lowfd, int maxhint, VALUE noclose_fds);
 int rb_pipe(int *pipes);
 int rb_reserved_fd_p(int fd);
 #define RB_RESERVED_FD_P(fd) rb_reserved_fd_p(fd)
+void rb_update_max_fd(int fd);
 /* marshal.c */
 VALUE rb_marshal_dump(VALUE, VALUE);
 VALUE rb_marshal_load(VALUE);
@@ -540,7 +557,9 @@ RUBY_EXTERN char *ruby_sourcefile;
 ID rb_id_attrset(ID);
 void rb_gc_mark_parser(void);
 int rb_is_const_id(ID);
+int rb_is_global_id(ID);
 int rb_is_instance_id(ID);
+int rb_is_attrset_id(ID);
 int rb_is_class_id(ID);
 int rb_is_local_id(ID);
 int rb_is_junk_id(ID);

@@ -9678,24 +9678,29 @@ rb_enc_symname_p(const char *name, rb_encoding *enc)
     return rb_enc_symname2_p(name, strlen(name), enc);
 }
 
-int
-rb_enc_symname2_p(const char *name, long len, rb_encoding *enc)
+static int
+rb_enc_symname_type(const char *name, long len, rb_encoding *enc)
 {
     const char *m = name;
     const char *e = m + len;
-    int localid = FALSE;
+    int type = ID_JUNK;
 
-    if (!m) return FALSE;
+    if (!m || len <= 0) return -1;
     switch (*m) {
       case '\0':
-	return FALSE;
+	return -1;
 
       case '$':
-	if (is_special_global_name(++m, e, enc)) return TRUE;
+	type = ID_GLOBAL;
+	if (is_special_global_name(++m, e, enc)) return type;
 	goto id;
 
       case '@':
-	if (*++m == '@') ++m;
+	type = ID_INSTANCE;
+	if (*++m == '@') {
+	    ++m;
+	    type = ID_CLASS;
+	}
 	goto id;
 
       case '<':
@@ -9716,7 +9721,7 @@ rb_enc_symname2_p(const char *name, long len, rb_encoding *enc)
 	switch (*++m) {
 	  case '~': ++m; break;
 	  case '=': if (*++m == '=') ++m; break;
-	  default: return FALSE;
+	  default: return -1;
 	}
 	break;
 
@@ -9733,32 +9738,55 @@ rb_enc_symname2_p(const char *name, long len, rb_encoding *enc)
 	break;
 
       case '[':
-	if (*++m != ']') return FALSE;
+	if (*++m != ']') return -1;
 	if (*++m == '=') ++m;
 	break;
 
       case '!':
+	if (len == 1) return ID_JUNK;
 	switch (*++m) {
-	  case '\0': return TRUE;
 	  case '=': case '~': ++m; break;
-	  default: return FALSE;
+	  default: return -1;
 	}
 	break;
 
       default:
-	localid = !rb_enc_isupper(*m, enc);
+	type = rb_enc_isupper(*m, enc) ? ID_CONST : ID_LOCAL;
       id:
 	if (m >= e || (*m != '_' && !rb_enc_isalpha(*m, enc) && ISASCII(*m)))
-	    return FALSE;
+	    return -1;
 	while (m < e && is_identchar(m, e, enc)) m += rb_enc_mbclen(m, e, enc);
-	if (localid) {
-	    switch (*m) {
-	      case '!': case '?': case '=': ++m;
-	    }
+	switch (*m) {
+	  case '!': case '?':
+	    if (type == ID_GLOBAL || type == ID_CLASS || type == ID_INSTANCE) return -1;
+	    type = ID_JUNK;
+	    ++m;
+	    break;
+	  case '=':
+	    if (type != ID_CONST && type != ID_LOCAL) return -1;
+	    type = ID_ATTRSET;
+	    ++m;
+	    break;
 	}
 	break;
     }
-    return m == e;
+    return m == e ? type : -1;
+}
+
+int
+rb_enc_symname2_p(const char *name, long len, rb_encoding *enc)
+{
+    return rb_enc_symname_type(name, len, enc) != -1;
+}
+
+static int
+rb_str_symname_type(VALUE name)
+{
+    const char *ptr = StringValuePtr(name);
+    long len = RSTRING_LEN(name);
+    int type = rb_enc_symname_type(ptr, len, rb_enc_get(name));
+    RB_GC_GUARD(name);
+    return type;
 }
 
 static ID
@@ -10047,9 +10075,21 @@ rb_is_class_id(ID id)
 }
 
 int
+rb_is_global_id(ID id)
+{
+    return is_global_id(id);
+}
+
+int
 rb_is_instance_id(ID id)
 {
     return is_instance_id(id);
+}
+
+int
+rb_is_attrset_id(ID id)
+{
+    return is_attrset_id(id);
 }
 
 int
@@ -10062,6 +10102,107 @@ int
 rb_is_junk_id(ID id)
 {
     return is_junk_id(id);
+}
+
+ID
+rb_check_id(volatile VALUE *namep)
+{
+    st_data_t id;
+    VALUE tmp;
+    VALUE name = *namep;
+
+    if (SYMBOL_P(name)) {
+	return SYM2ID(name);
+    }
+    else if (!RB_TYPE_P(name, T_STRING)) {
+	tmp = rb_check_string_type(name);
+	if (NIL_P(tmp)) {
+	    tmp = rb_inspect(name);
+	    rb_raise(rb_eTypeError, "%s is not a symbol",
+		     RSTRING_PTR(tmp));
+	}
+	name = tmp;
+	*namep = name;
+    }
+
+    if (rb_enc_str_coderange(name) == ENC_CODERANGE_BROKEN) {
+	rb_raise(rb_eEncodingError, "invalid encoding symbol");
+    }
+
+    if (st_lookup(global_symbols.sym_id, (st_data_t)name, &id))
+	return (ID)id;
+
+    if (rb_is_attrset_name(name)) {
+	struct RString fake_str;
+	const VALUE localname = (VALUE)&fake_str;
+	/* make local name by chopping '=' */
+	fake_str.basic.flags = T_STRING|RSTRING_NOEMBED;
+	fake_str.basic.klass = rb_cString;
+	fake_str.as.heap.len = RSTRING_LEN(name) - 1;
+	fake_str.as.heap.ptr = RSTRING_PTR(name);
+	fake_str.as.heap.aux.capa = fake_str.as.heap.len;
+	rb_enc_copy(localname, name);
+	OBJ_FREEZE(localname);
+
+	if (st_lookup(global_symbols.sym_id, (st_data_t)localname, &id)) {
+	    return rb_id_attrset((ID)id);
+	}
+	RB_GC_GUARD(name);
+    }
+
+    return (ID)0;
+}
+
+int
+rb_is_const_name(VALUE name)
+{
+    return rb_str_symname_type(name) == ID_CONST;
+}
+
+int
+rb_is_class_name(VALUE name)
+{
+    return rb_str_symname_type(name) == ID_CLASS;
+}
+
+int
+rb_is_global_name(VALUE name)
+{
+    return rb_str_symname_type(name) == ID_GLOBAL;
+}
+
+int
+rb_is_instance_name(VALUE name)
+{
+    return rb_str_symname_type(name) == ID_INSTANCE;
+}
+
+int
+rb_is_attrset_name(VALUE name)
+{
+    return rb_str_symname_type(name) == ID_ATTRSET;
+}
+
+int
+rb_is_local_name(VALUE name)
+{
+    return rb_str_symname_type(name) == ID_LOCAL;
+}
+
+int
+rb_is_method_name(VALUE name)
+{
+    switch (rb_str_symname_type(name)) {
+      case ID_LOCAL: case ID_ATTRSET: case ID_JUNK:
+	return TRUE;
+    }
+    return FALSE;
+}
+
+int
+rb_is_junk_name(VALUE name)
+{
+    return rb_str_symname_type(name) == -1;
 }
 
 #endif /* !RIPPER */

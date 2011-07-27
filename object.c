@@ -35,6 +35,7 @@ VALUE rb_cFalseClass;
 
 static ID id_eq, id_eql, id_match, id_inspect;
 static ID id_init_copy, id_init_clone, id_init_dup;
+static ID id_const_missing;
 
 /*
  *  call-seq:
@@ -1774,7 +1775,23 @@ rb_mod_const_get(int argc, VALUE *argv, VALUE mod)
     else {
 	rb_scan_args(argc, argv, "11", &name, &recur);
     }
-    id = rb_to_id(name);
+    id = rb_check_id(&name);
+    if (!id) {
+	if (!rb_is_const_name(name)) {
+	    rb_name_error_str(name, "wrong constant name %s", RSTRING_PTR(name));
+	}
+	else if (!rb_method_basic_definition_p(CLASS_OF(mod), id_const_missing)) {
+	    id = rb_to_id(name);
+	}
+	else if (mod && rb_class_real(mod) != rb_cObject) {
+	    rb_name_error_str(name, "uninitialized constant %s::%s",
+			      rb_class2name(mod),
+			      RSTRING_PTR(name));
+	}
+	else {
+	    rb_name_error_str(name, "uninitialized constant %s", RSTRING_PTR(name));
+	}
+    }
     if (!rb_is_const_id(id)) {
 	rb_name_error(id, "wrong constant name %s", rb_id2name(id));
     }
@@ -1833,7 +1850,14 @@ rb_mod_const_defined(int argc, VALUE *argv, VALUE mod)
     else {
 	rb_scan_args(argc, argv, "11", &name, &recur);
     }
-    id = rb_to_id(name);
+    if (!(id = rb_check_id(&name))) {
+	if (rb_is_const_name(name)) {
+	    return Qfalse;
+	}
+	else {
+	    rb_name_error_str(name, "wrong constant name %s", RSTRING_PTR(name));
+	}
+    }
     if (!rb_is_const_id(id)) {
 	rb_name_error(id, "wrong constant name %s", rb_id2name(id));
     }
@@ -1863,8 +1887,16 @@ rb_mod_const_defined(int argc, VALUE *argv, VALUE mod)
 static VALUE
 rb_obj_ivar_get(VALUE obj, VALUE iv)
 {
-    ID id = rb_to_id(iv);
+    ID id = rb_check_id(&iv);
 
+    if (!id) {
+	if (rb_is_instance_name(iv)) {
+	    return Qnil;
+	}
+	else {
+	    rb_name_error_str(iv, "`%s' is not allowed as an instance variable name", RSTRING_PTR(iv));
+	}
+    }
     if (!rb_is_instance_id(id)) {
 	rb_name_error(id, "`%s' is not allowed as an instance variable name", rb_id2name(id));
     }
@@ -1923,8 +1955,16 @@ rb_obj_ivar_set(VALUE obj, VALUE iv, VALUE val)
 static VALUE
 rb_obj_ivar_defined(VALUE obj, VALUE iv)
 {
-    ID id = rb_to_id(iv);
+    ID id = rb_check_id(&iv);
 
+    if (!id) {
+	if (rb_is_instance_name(iv)) {
+	    return Qfalse;
+	}
+	else {
+	    rb_name_error_str(iv, "`%s' is not allowed as an instance variable name", RSTRING_PTR(iv));
+	}
+    }
     if (!rb_is_instance_id(id)) {
 	rb_name_error(id, "`%s' is not allowed as an instance variable name", rb_id2name(id));
     }
@@ -1948,8 +1988,17 @@ rb_obj_ivar_defined(VALUE obj, VALUE iv)
 static VALUE
 rb_mod_cvar_get(VALUE obj, VALUE iv)
 {
-    ID id = rb_to_id(iv);
+    ID id = rb_check_id(&iv);
 
+    if (!id) {
+	if (rb_is_class_name(iv)) {
+	    rb_name_error_str(iv, "uninitialized class variable %s in %s",
+			      RSTRING_PTR(iv), rb_class2name(obj));
+	}
+	else {
+	    rb_name_error_str(iv, "`%s' is not allowed as a class variable name", RSTRING_PTR(iv));
+	}
+    }
     if (!rb_is_class_id(id)) {
 	rb_name_error(id, "`%s' is not allowed as a class variable name", rb_id2name(id));
     }
@@ -2002,8 +2051,16 @@ rb_mod_cvar_set(VALUE obj, VALUE iv, VALUE val)
 static VALUE
 rb_mod_cvar_defined(VALUE obj, VALUE iv)
 {
-    ID id = rb_to_id(iv);
+    ID id = rb_check_id(&iv);
 
+    if (!id) {
+	if (rb_is_class_name(iv)) {
+	    return Qfalse;
+	}
+	else {
+	    rb_name_error_str(iv, "`%s' is not allowed as a class variable name", RSTRING_PTR(iv));
+	}
+    }
     if (!rb_is_class_id(id)) {
 	rb_name_error(id, "`%s' is not allowed as a class variable name", rb_id2name(id));
     }
@@ -2773,6 +2830,7 @@ Init_Object(void)
     id_init_copy = rb_intern("initialize_copy");
     id_init_clone = rb_intern("initialize_clone");
     id_init_dup = rb_intern("initialize_dup");
+    id_const_missing = rb_intern("const_missing");
 
     for (i=0; conv_method_names[i].method; i++) {
 	conv_method_names[i].id = rb_intern(conv_method_names[i].method);
