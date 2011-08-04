@@ -2,10 +2,9 @@
 
   mem_api.h - Memory/GC internals API.
 
-  $Author$
-  created at: Mon Jan 17 12:09:32 CST 2011
+  Author: Kurt Stephens
 
-  Copyright (C) 2010 Kurt Stephens
+  Copyright (C) 2010, 2011 Kurt Stephens
 
 **********************************************************************/
 #ifndef RUBY_MEM_API_H
@@ -27,21 +26,34 @@ extern "C" {
 #pragma GCC visibility push(default)
 #endif
 
+/* Defines memory system object. */
 typedef struct rb_mem_sys {
   const char *name;
   void *data;
+  void (*initialize)(struct rb_mem_sys *ms);
+  void (*options)(struct rb_mem_sys *ms, const char *options);
+  /* API methods. */
   VALUE (*newobj)(void);
   void (*gc)(void);
   void (*gc_mark)(VALUE object);
   void (*gc_mark_locations)(VALUE *start, VALUE *end);
   int  (*gc_markedQ)(VALUE object);
+  struct rb_mem_sys *next; /* mem_sys_list */
 } rb_mem_sys;
 
+void rb_mem_sys_init(); /* Initialize memory system API. */
+void rb_mem_sys_select(const char *name); /* Select memory system by name, or 0 to use $RUBY_MEM_SYS, else rb_mem_sys_default. */
+void rb_mem_sys_register(rb_mem_sys *); /* Register a memory system. */
+extern const char *rb_mem_sys_default;
+
+/* Internal mem system APIs (as defined in gc.c) */
 #if 0
 VALUE rb_newobj(void);
 void rb_gc(void);
 void rb_gc_mark(VALUE);
+void rb_gc_mark_locations(VALUE *start, VALUE *end);
 #endif
+/* Addtional mem system APIs for GC callbacks. */
 extern int rb_gc_markedQ(VALUE object);
 
 enum rb_gc_phase {

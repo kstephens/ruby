@@ -288,6 +288,8 @@ typedef struct RVALUE {
 #endif
 } RVALUE;
 
+size_t rb_sizeof_RVALUE = sizeof(RVALUE); /* UGLY */
+
 #if defined(_MSC_VER) || defined(__BORLANDC__) || defined(__CYGWIN__)
 #pragma pack(pop)
 #endif
@@ -1180,9 +1182,11 @@ rb_newobj_core(void)
     freelist = freelist->as.free.next;
 
     MEMZERO((void*)obj, RVALUE, 1);
+#if 0
 #ifdef GC_DEBUG
     RANY(obj)->file = rb_sourcefile();
     RANY(obj)->line = rb_sourceline();
+#endif
 #endif
     GC_PROF_INC_LIVE_NUM;
 

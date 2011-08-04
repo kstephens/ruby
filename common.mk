@@ -54,6 +54,8 @@ COMMONOBJS    = array.$(OBJEXT) \
 		file.$(OBJEXT) \
 		gc.$(OBJEXT) \
 		mem_api.$(OBJEXT) \
+		mem_sys_core.$(OBJEXT) \
+		mem_sys_malloc.$(OBJEXT) \
 		hash.$(OBJEXT) \
 		inits.$(OBJEXT) \
 		io.$(OBJEXT) \
@@ -631,6 +633,15 @@ gc.$(OBJEXT): {$(VPATH)}gc.c $(RUBY_H_INCLUDES) {$(VPATH)}re.h \
   {$(VPATH)}regex.h $(ENCODING_H_INCLUDES) $(VM_CORE_H_INCLUDES) \
   {$(VPATH)}mem_api.h \
   {$(VPATH)}gc.h {$(VPATH)}io.h {$(VPATH)}eval_intern.h {$(VPATH)}util.h \
+  {$(VPATH)}debug.h {$(VPATH)}internal.h {$(VPATH)}constant.h
+mem_api.$(OBJEXT): {$(VPATH)}mem_api.c $(RUBY_H_INCLUDES) \
+  {$(VPATH)}mem_api.h \
+  {$(VPATH)}debug.h {$(VPATH)}internal.h {$(VPATH)}constant.h
+mem_sys_core.$(OBJEXT): {$(VPATH)}mem_sys_core.c $(RUBY_H_INCLUDES) \
+  {$(VPATH)}mem_api.h \
+  {$(VPATH)}debug.h {$(VPATH)}internal.h {$(VPATH)}constant.h
+mem_sys_malloc.$(OBJEXT): {$(VPATH)}mem_sys_malloc.c $(RUBY_H_INCLUDES) \
+  {$(VPATH)}mem_api.h \
   {$(VPATH)}debug.h {$(VPATH)}internal.h {$(VPATH)}constant.h
 hash.$(OBJEXT): {$(VPATH)}hash.c $(RUBY_H_INCLUDES) {$(VPATH)}util.h \
   $(ENCODING_H_INCLUDES)

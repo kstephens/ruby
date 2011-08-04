@@ -3,33 +3,90 @@
   mem_api.c - Memory/GC internals API.
 
   Author: Kurt Stephens
-  created at: Mon Jan 17 12:09:32 CST 2011
 
-  Copyright (C) 2011 Kurt Stephens, Enova Financial
+  Copyright (C) 2010, 2011 Kurt Stephens
 */
 
 #include "ruby.h"
 #include "mem_api.h"
+#include <string.h>
 #include <stdlib.h>
 
-extern void rb_newobj_core();
-extern void rb_gc_core();
-extern void rb_gc_mark_core(VALUE object);
-extern void rb_gc_mark_locations_core(VALUE *start, VALUE *end);
-extern int  rb_gc_markedQ_core(VALUE object);
-static rb_mem_sys ms = {
-  "core",
-  0,
-  rb_newobj_core,
-  rb_gc_core,
-  rb_gc_mark_core,
-  rb_gc_mark_locations_core,
-  rb_gc_markedQ_core,
-};
+static rb_mem_sys ms; /* The active, selected rb_mem_sys. */
+static rb_mem_sys *mem_sys_list = 0; /* List of registered rb_mem_sys objects. */
+
+void rb_mem_sys_register(rb_mem_sys *mem_sys)
+{
+  mem_sys->next = mem_sys_list;
+  mem_sys_list = mem_sys;
+}
+
+void rb_mem_sys_init()
+{
+#define MEM_SYS(N)				\
+  {						\
+    extern rb_mem_sys rb_mem_sys_##N;		\
+    rb_mem_sys_register(&rb_mem_sys_##N);	\
+  }
+  MEM_SYS(core);
+  MEM_SYS(malloc);
+#undef MEM_SYS
+}
+
+const char *rb_mem_sys_default = "core";
+
+void rb_mem_sys_select(const char *name)
+{
+  if ( ! (name && *name) )
+    name = getenv("RUBY_MEM_SYS");
+
+  if ( ! (name && *name) ) 
+    name = rb_mem_sys_default;
+
+  {
+    const char *options = strchr(name, ':');
+    size_t name_len;
+    rb_mem_sys *p = mem_sys_list;
+    if ( ! options )
+      options = strchr(name, '\0');
+    name_len = options - name;
+    while ( p ) {
+      if ( ! strncmp(p->name, name, name_len) )
+	break;
+      p = p->next;
+    }
+    if ( p ) {
+      ms = *p;
+      if ( ms.initialize )
+	ms.initialize(&ms);
+      if ( ms.options && *options )
+	ms.options(&ms, options);
+      // fprintf(stderr, "\nrb_mem_sys_select: selected %s\n", ms.name);
+    } else {
+      rb_fatal("rb_mem_sys_select: cannot locate %s", name);
+      abort();
+    }
+  }
+}
+
+void Init_mem_sys()
+{
+  rb_mem_sys_init();
+  rb_mem_sys_select(0);
+}
+
+/********************************************************************
+ * Internal interface to rb_mem_sys methods.
+ */
 
 VALUE rb_newobj(void)
 {
-  return ms.newobj();
+  VALUE obj = ms.newobj();
+#ifdef GC_DEBUG
+  RANY(obj)->file = rb_sourcefile();
+  RANY(obj)->line = rb_sourceline();
+#endif
+  return obj;
 }
 
 void rb_gc(void)
@@ -51,6 +108,8 @@ int rb_gc_markedQ(VALUE obj)
 {
   return ms.gc_markedQ(obj);
 }
+
+/********************************************************************/
 
 typedef struct rb_gc_callback {
   struct rb_gc_callback *next, *prev;
