@@ -27,8 +27,8 @@ extern void Init_GC_core();
 rb_mem_sys rb_mem_sys_core = {
   "core",
   0,
-  0,
-  0,
+  0, /* initialize */
+  0, /* options */
   0, /* Init_GC */
   rb_newobj_core,
   rb_gc_core,
