@@ -109,6 +109,18 @@ int rb_gc_markedQ(VALUE obj)
   return ms.gc_markedQ(obj);
 }
 
+void rb_gc_at_exit()
+{
+  if ( ms.gc_at_exit )
+    ms.gc_at_exit();
+}
+
+/* See eval.c */
+void rb_gc_call_finalizer_at_exit(void)
+{
+  rb_gc_at_exit();
+}
+
 /********************************************************************/
 
 typedef struct rb_gc_callback {

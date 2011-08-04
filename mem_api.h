@@ -38,6 +38,7 @@ typedef struct rb_mem_sys {
   void (*gc_mark)(VALUE object);
   void (*gc_mark_locations)(VALUE *start, VALUE *end);
   int  (*gc_markedQ)(VALUE object);
+  void  (*gc_at_exit)();
   struct rb_mem_sys *next; /* mem_sys_list */
 } rb_mem_sys;
 

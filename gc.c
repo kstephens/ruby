@@ -3003,7 +3003,7 @@ force_chain_object(st_data_t key, st_data_t val, st_data_t arg)
 }
 
 void
-rb_gc_call_finalizer_at_exit(void)
+rb_gc_at_exit_core(void)
 {
     rb_objspace_call_finalizer(&rb_objspace);
 }
