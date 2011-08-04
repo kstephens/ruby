@@ -77,7 +77,10 @@ static void
 rb_gc_register_address_malloc(VALUE *addr)
 {
   if ( show_register_address ) {
-    fprintf(stderr, "\n  rb_gc_register_address_malloc: pid=%d alloc_id=%lu addr=%p\n", (int) getpid(), (unsigned long) alloc_id, (void*) addr);
+    fprintf(stderr, "\n  rb_gc_register_address_malloc: pid=%d alloc_id=%lu addr=%p", (int) getpid(), (unsigned long) alloc_id, (void*) addr);
+    //if ( show_line )
+    //  fprintf(stderr, " @%s:%d\n", rb_sourcefile(), rb_sourceline());
+    fprintf(stderr, "\n");
   }
 }
 
@@ -85,7 +88,10 @@ static void
 rb_gc_unregister_address_malloc(VALUE *addr)
 {
   if ( show_register_address ) {
-    fprintf(stderr, "\n  rb_gc_unregister_address_malloc: pid=%d alloc_id=%lu addr=%p\n", (int) getpid(), (unsigned long) alloc_id, (void*) addr);
+    fprintf(stderr, "\n  rb_gc_unregister_address_malloc: pid=%d alloc_id=%lu addr=%p", (int) getpid(), (unsigned long) alloc_id, (void*) addr);
+    //if ( show_line )
+    //  fprintf(stderr, " @%s:%d\n", rb_sourcefile(), rb_sourceline());
+    fprintf(stderr, "\n");
   }
 }
 
@@ -102,15 +108,15 @@ static void mem_sys_malloc_options(rb_mem_sys *ms, const char *options)
        (show_total_at_exit = ! ! strchr(options, 'E')) ||
        0 ){
     ms->newobj = rb_newobj_malloc_debug;
-    show_line = show_trace && ! ! strchr(options, 'L');
   }
+  show_line = ! ! strchr(options, 'L');
   show_register_address = ! ! strchr(options, 'R');
 }
 
 rb_mem_sys rb_mem_sys_malloc = {
   "malloc",
   0,
-  0,
+  0, /* initialize */
   mem_sys_malloc_options,
   0, /* Init_GC */
   rb_newobj_malloc,
