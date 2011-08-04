@@ -1,6 +1,6 @@
 /**********************************************************************
 
-  mem_sys_malloc.h - Malloc-only GC memory system.
+  mem_sys_malloc.h - Malloc-only memory system.
 
   Author: Kurt Stephens
   created at: 2011/08/03
@@ -17,6 +17,10 @@ static VALUE rb_newobj_malloc()
 {
   void *ptr;
   ptr = malloc(rb_sizeof_RVALUE);
+  if ( ! ptr ) {
+    rb_memerror();
+    return (VALUE) ptr; /* NOTREACHED? */
+  }
   bzero(ptr, rb_sizeof_RVALUE);
   return (VALUE) ptr;
 }
