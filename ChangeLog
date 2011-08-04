@@ -1,3 +1,39 @@
+Thu Aug  4 23:48:00 2011  Kenta Murata  <mrkn@mrkn.jp>
+
+	* thread_pthread.c (native_cond_signal): retry to call pthread_cond_signal
+	  and pthread_cond_broadcast if they return EAGAIN in
+	  native_cond_signal and native_cond_broadcast, respectively.
+	  It is for the pthread implementation of Mac OS X 10.7 (Lion).
+	  fixes #5155.  [ruby-dev:44342].
+
+	* thread_pthread.c (native_cond_broadcast): ditto.
+
+	* thread_pthread.c (struct cached_thread_entry): stop using
+	  pthread_cond_t and its functions directly.
+
+	* thread_pthread.c (register_cached_thread_and_wait): ditto.
+
+	* thread_pthread.c (use_cached_thread): ditto.
+
+Thu Aug  4 20:29:41 2011  Naohisa Goto  <ngotogenome@gmail.com>
+
+	* configure.in: when Solaris cc, use $(CC) to link shared libs.
+
+Thu Aug  4 20:19:11 2011  KOSAKI Motohiro  <kosaki.motohiro@gmail.com>
+
+	* error.c (report_bug): use a small message buffer instead of BUFSIZ.
+	  It is needed for avoiding nested SIGSEGV on Linux.
+	  Note: BUFSIZ is not proper buffer size. It's unrelated with maximum
+	  filename length. :-/
+	  [Bug #5139] [ruby-dev:44315]
+
+Thu Aug  4 16:08:45 2011  Nobuyoshi Nakada  <nobu@ruby-lang.org>
+
+	* tool/rbinstall.rb (gem): install all gemspecs under lib and ext.
+
+	* tool/rbinstall.rb (Gem::Specification): may not be defined when
+	  cross-compiling and BASERUBY is 1.8.
+
 Thu Aug  4 11:30:36 2011  NARUSE, Yui  <naruse@ruby-lang.org>
 
 	* include/ruby/missing.h: define __syscall on OpenBSD as r32702.
