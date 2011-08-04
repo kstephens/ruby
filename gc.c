@@ -1435,7 +1435,9 @@ rb_gc_mark_locations_core(VALUE *start, VALUE *end)
     gc_mark_locations(&rb_objspace, start, end);
 }
 
+#if 0
 #define rb_gc_mark_locations(start, end) gc_mark_locations(objspace, (start), (end))
+#endif
 
 struct mark_tbl_arg {
     rb_objspace_t *objspace;
