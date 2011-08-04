@@ -32,12 +32,15 @@ typedef struct rb_mem_sys {
   void *data;
   void (*initialize)(struct rb_mem_sys *ms);
   void (*options)(struct rb_mem_sys *ms, const char *options);
+  void (*Init_GC)();
   /* API methods. */
   VALUE (*newobj)(void);
   void (*gc)(void);
   void (*gc_mark)(VALUE object);
   void (*gc_mark_locations)(VALUE *start, VALUE *end);
   int  (*gc_markedQ)(VALUE object);
+  void (*gc_register_address)(VALUE *addr);
+  void (*gc_unregister_address)(VALUE *addr);
   void (*gc_at_exit)();
   struct rb_mem_sys *next; /* mem_sys_list */
 } rb_mem_sys;

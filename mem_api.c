@@ -109,6 +109,18 @@ int rb_gc_markedQ(VALUE obj)
   return ms.gc_markedQ(obj);
 }
 
+void
+rb_gc_register_address(VALUE *addr)
+{
+  ms.gc_register_address(addr);
+}
+
+void
+rb_gc_unregister_address(VALUE *addr)
+{
+  ms.gc_unregister_address(addr);
+}
+
 void rb_gc_at_exit()
 {
   if ( ms.gc_at_exit )

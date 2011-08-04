@@ -28,11 +28,13 @@ static VALUE rb_newobj_malloc()
 static int show_trace;
 static int show_line;
 static int show_total_at_exit;
+static int show_register_address;
 
 /***************************
  * RUBY_MEM_SYS=malloc:D  enables allocation tracing.
  * RUBY_MEM_SYS=malloc:DL enables allocation tracing with @file:line.
  * RUBY_MEM_SYS=malloc:E  enables total alloc counts and size at exit.
+ * RUBY_MEM_SYS=malloc:R  enables rb_gc_(un)register_address() tracing.
  */
 
 static size_t alloc_id = 0;
@@ -71,6 +73,22 @@ static int  rb_gc_markedQ_malloc(VALUE object)
   return 0;
 }
 
+static void
+rb_gc_register_address_malloc(VALUE *addr)
+{
+  if ( show_register_address ) {
+    fprintf(stderr, "\n  rb_gc_register_address_malloc: pid=%d alloc_id=%lu addr=%p\n", (int) getpid(), (unsigned long) alloc_id, (void*) addr);
+  }
+}
+
+static void
+rb_gc_unregister_address_malloc(VALUE *addr)
+{
+  if ( show_register_address ) {
+    fprintf(stderr, "\n  rb_gc_unregister_address_malloc: pid=%d alloc_id=%lu addr=%p\n", (int) getpid(), (unsigned long) alloc_id, (void*) addr);
+  }
+}
+
 static void rb_gc_at_exit_malloc()
 {
   if ( show_total_at_exit ) {
@@ -81,10 +99,12 @@ static void rb_gc_at_exit_malloc()
 static void mem_sys_malloc_options(rb_mem_sys *ms, const char *options)
 {
   if ( (show_trace = ! ! strchr(options, 'D')) || 
-       (show_total_at_exit = ! ! strchr(options, 'E')) ) {
+       (show_total_at_exit = ! ! strchr(options, 'E')) ||
+       0 ){
     ms->newobj = rb_newobj_malloc_debug;
-    show_line = ! ! strchr(options, 'L');
+    show_line = show_trace && ! ! strchr(options, 'L');
   }
+  show_register_address = ! ! strchr(options, 'R');
 }
 
 rb_mem_sys rb_mem_sys_malloc = {
@@ -92,11 +112,14 @@ rb_mem_sys rb_mem_sys_malloc = {
   0,
   0,
   mem_sys_malloc_options,
+  0, /* Init_GC */
   rb_newobj_malloc,
   rb_gc_malloc,
   rb_gc_mark_malloc,
   rb_gc_mark_locations_malloc,
   rb_gc_markedQ_malloc,
+  rb_gc_register_address_malloc,
+  rb_gc_unregister_address_malloc,
   rb_gc_at_exit_malloc,
 };
 

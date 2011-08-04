@@ -940,7 +940,7 @@ rb_gc_register_mark_object(VALUE obj)
 }
 
 void
-rb_gc_register_address(VALUE *addr)
+rb_gc_register_address_core(VALUE *addr)
 {
     rb_objspace_t *objspace = &rb_objspace;
     struct gc_list *tmp;
@@ -952,7 +952,7 @@ rb_gc_register_address(VALUE *addr)
 }
 
 void
-rb_gc_unregister_address(VALUE *addr)
+rb_gc_unregister_address_core(VALUE *addr)
 {
     rb_objspace_t *objspace = &rb_objspace;
     struct gc_list *tmp = global_List;
