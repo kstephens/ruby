@@ -562,6 +562,7 @@ VALUE rb_int2big(SIGNED_VALUE);
 
 VALUE rb_newobj(void);
 #define NEWOBJ(obj,type) type *(obj) = (type*)rb_newobj()
+#define NEWOBJ2(obj,type,t) type *(obj) = (type*)rb_newobj2(sizeof(type), (t))
 #define OBJSETUP(obj,c,t) do {\
     RBASIC(obj)->flags = (t);\
     RBASIC(obj)->klass = (c);\
