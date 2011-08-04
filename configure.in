@@ -87,6 +87,7 @@ if test "$MAJOR" = "1"; then
   AC_DEFINE(CANONICALIZATION_FOR_MATHN)
 fi
 dnl checks for alternative programs
+AC_CANONICAL_BUILD
 AC_ARG_WITH(gcc,
 	AS_HELP_STRING([--without-gcc], [never use gcc]),
 	[
@@ -100,6 +101,14 @@ then
   AC_MSG_ERROR(cached CC is different -- throw away $cache_file
 (it is also a good idea to do 'make clean' before compiling))
 fi
+AS_CASE(["$build_os"],
+  [darwin11.*], [
+    AS_CASE(["x$CC"],
+      [xgcc-4.2|x/usr/bin/gcc-4.2], [: ${CXX=g++-4.2}],
+      [xgcc|x/usr/bin/gcc],         [: ${CXX=g++}],
+      [xcc|x/usr/bin/cc],           [: ${CXX=c++}],
+      [xclang|x/usr/bin/clang],     [: ${CXX=clang++}])
+  ])
 test -z "$CC" || ac_cv_prog_CC="$CC"
 
 if test "$program_prefix" = NONE; then
@@ -1805,7 +1814,9 @@ if test x"$enable_pthread" = xyes; then
 	[c],    [],
 	[root], [],
 	[c_r],  [MAINLIBS="-pthread $MAINLIBS"],
-	        [LIBS="-l$pthread_lib $LIBS"])
+	        [AS_CASE(["$target_os"],
+		    [openbsd*], [LIBS="-pthread $LIBS"],
+		    [LIBS="-l$pthread_lib $LIBS"])])
     else
 	AC_MSG_WARN("Don't know how to find pthread library on your system -- thread support disabled")
     fi
@@ -2597,6 +2608,28 @@ AS_CASE(["$FIRSTMAKEFILE"], [*GNUmakefile:*], [gnumake=yes], [
 	gnumake=no])
     AC_MSG_RESULT($gnumake)
 ])
+AS_IF([test "$gnumake" = yes], [ NULLCMD=: ], [
+    AC_MSG_CHECKING([for safe null command for ${MAKE-make}])
+    mkdir conftest.dir
+    echo 'A=1' > conftest.dir/Makefile
+    echo 'B=$(A:1=@:)' >> conftest.dir/Makefile
+    echo 'all:; $B 1 2 3 4 5 6 7 8 9' >> conftest.dir/Makefile
+    if (cd conftest.dir; ${MAKE-make} >/dev/null 2>/dev/null); then
+	NULLCMD=:
+    else
+	echo 'A=1' > conftest.dir/Makefile
+	echo 'B=$(A:1=@true)' >> conftest.dir/Makefile
+	echo 'all:; $B 1 2 3 4 5 6 7 8 9' >> conftest.dir/Makefile
+	if (cd conftest.dir; ${MAKE-make} >/dev/null 2>/dev/null); then
+	    NULLCMD=true
+	else
+	    AC_MSG_ERROR(no candidate for safe null command)
+	fi
+    fi
+    rm -fr conftest.dir
+    AC_MSG_RESULT($NULLCMD)
+])
+AC_SUBST(NULLCMD)
 
 if test "${universal_binary-no}" = yes ; then
     AC_CACHE_CHECK([for architecture macros], rb_cv_architecture_macros, [

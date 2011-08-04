@@ -119,8 +119,9 @@ BigDecimal_version(VALUE self)
     /*
      * 1.0.0: Ruby 1.8.0
      * 1.0.1: Ruby 1.8.1
+     * 1.1.0: Ruby 1.9.3
     */
-    return rb_str_new2("1.0.1");
+    return rb_str_new2("1.1.0");
 }
 
 /*
@@ -1959,7 +1960,7 @@ is_even(VALUE x)
 static VALUE
 rmpd_power_by_big_decimal(Real const* x, Real const* exp, ssize_t const n)
 {
-    VALUE log_x, multiplied, y, vn;
+    VALUE log_x, multiplied, y;
 
     if (VpIsZero(exp)) {
 	return ToValue(VpCreateRbObject(n, "1"));

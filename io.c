@@ -35,10 +35,6 @@
 # define NO_SAFE_RENAME
 #endif
 
-#if defined(__CYGWIN__) || defined(_WIN32)
-# define NO_LONG_FNAME
-#endif
-
 #if defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__) || defined(__DragonFly__) || defined(sun) || defined(_nec_ews)
 # define USE_SETVBUF
 #endif
@@ -2823,19 +2819,15 @@ static VALUE
 rb_io_each_byte(VALUE io)
 {
     rb_io_t *fptr;
-    char *p, *e;
 
     RETURN_ENUMERATOR(io, 0, 0);
     GetOpenFile(io, fptr);
 
     for (;;) {
-	p = fptr->rbuf.ptr+fptr->rbuf.off;
-	e = p + fptr->rbuf.len;
-	while (p < e) {
-	    fptr->rbuf.off++;
+	while (fptr->rbuf.len > 0) {
+	    char *p = fptr->rbuf.ptr + fptr->rbuf.off++;
 	    fptr->rbuf.len--;
 	    rb_yield(INT2FIX(*p & 0xff));
-	    p++;
 	    errno = 0;
 	}
 	rb_io_check_byte_readable(fptr);
@@ -4918,6 +4910,14 @@ rb_pipe(int *pipes)
             ret = pipe(pipes);
         }
     }
+#ifdef __CYGWIN__
+    if (ret == 0 && pipes[1] == -1) {
+	close(pipes[0]);
+	pipes[0] = -1;
+	errno = ENFILE;
+	return -1;
+    }
+#endif
     if (ret == 0) {
         rb_update_max_fd(pipes[0]);
         rb_update_max_fd(pipes[1]);
@@ -6889,15 +6889,15 @@ argf_next_argv(VALUE argf)
 		    fstat(fr, &st);
 		    if (*ARGF.inplace) {
 			str = rb_str_new2(fn);
-#ifdef NO_LONG_FNAME
-                        ruby_add_suffix(str, ARGF.inplace);
-#else
 			rb_str_cat2(str, ARGF.inplace);
-#endif
 #ifdef NO_SAFE_RENAME
 			(void)close(fr);
 			(void)unlink(RSTRING_PTR(str));
-			(void)rename(fn, RSTRING_PTR(str));
+			if (rename(fn, RSTRING_PTR(str)) < 0) {
+			    rb_warn("Can't rename %s to %s: %s, skipping file",
+				    fn, RSTRING_PTR(str), strerror(errno));
+			    goto retry;
+			}
 			fr = rb_sysopen(str, O_RDONLY, 0);
 #else
 			if (rename(fn, RSTRING_PTR(str)) < 0) {
