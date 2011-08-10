@@ -1,3 +1,157 @@
+Wed Aug 10 14:11:07 2011  Nobuyoshi Nakada  <nobu@ruby-lang.org>
+
+	* lib/mkmf.rb (init_mkmf): set $LIBRUBYARG regardless of shared
+	  option.  [ruby-core:38802] [Bug #5147]
+
+Wed Aug 10 02:53:27 2011  NARUSE, Yui  <naruse@ruby-lang.org>
+
+	* lib/net/http.rb: come back autoload. OpenSSL constant is used
+	  some places, so it leads mistakes like HTTP.start.
+
+Tue Aug  9 22:57:45 2011  CHIKANAGA Tomoyuki  <nagachika00@gmail.com>
+
+	* ext/date/date_parse.c (date_zone_to_diff): add RB_GC_GUARD.
+	  [ruby-dev:44337] [Bug #5152]
+
+	* ext/date/data_parse.c (parse_ddd_cb): ditto.
+
+Tue Aug  9 14:25:47 2011  Naohisa Goto  <ngotogenome@gmail.com>
+
+	* ext/fiddle/conversions.c (generic_to_value): ffi_arg and ffi_sarg
+	  should be used to handle shorter return value. fix [Bug #3861]
+	  [ruby-core:32504]
+
+	* ext/fiddle/closure.c (callback): ditto
+
+	* ext/fiddle/conversions.h (fiddle_generic): ditto
+
+	* ext/fiddle/conversions.c (value_to_generic): char, short and int
+	  are strictly distinguished on big-endian CPU, e.g. sparc64.
+
+Tue Aug  9 11:21:08 2011  Narihiro Nakamura  <authornari@gmail.com>
+
+	* gc.c (gc_lazy_sweep): if sweep target slots are not found, we
+	  try heap_increment() because it might be able to expand the
+	  heap. [Bug #5127] [ruby-dev:44285]
+
+	* gc.c (gc_clear_mark_on_sweep_slots): if a sweeping was
+	  interrupted, we expand the heap if at all possible.
+
+Tue Aug  9 12:20:33 2011  Naohisa Goto  <ngotogenome@gmail.com>
+
+	* test/fiddle/helper.rb (libc_so, libm_so): Solaris support added.
+	  [ruby-core:38853] [Bug #5168]
+
+	* test/dl/test_base.rb (libc_so, libm_so): on Solaris, remove libc
+	  and libm version numbers for detecting default libc and libm.
+
+Tue Aug  9 09:18:04 2011  Eric Hodel  <drbrain@segment7.net>
+
+	* ext/zlib/zlib.c (gzfile_wrap):  Document encoding options.
+	* ext/zlib/zlib.c (rb_gzwriter_s_open): ditto
+	* ext/zlib/zlib.c (rb_gzreader_s_open): ditto
+
+Sun Aug  7 23:31:32 2011  KOSAKI Motohiro  <kosaki.motohiro@gmail.com>
+
+	* time.c (rb_strftime_alloc): raise ERANGE if width is too large.
+	  Patch by Nobuyoshi Nakada. [Bug #4457] [ruby-dev:43285]
+
+	* test/ruby/test_time.rb (class TestTime): add a test for the
+	  above change.
+
+Sun Aug  7 22:51:45 2011  KOSAKI Motohiro  <kosaki.motohiro@gmail.com>
+
+	* ext/openssl/ossl_asn1.c (decode_eoc): remove unused variables.
+	  Patch by Eric Wong. [Feature #5157] [ruby-core:38798]
+	* ext/openssl/ossl_asn1.c (ossl_asn1_decode): ditto.
+	* ext/openssl/ossl_pkey.c (ossl_pkey_new_from_data): ditto.
+
+Sun Aug  7 22:37:08 2011  KOSAKI Motohiro  <kosaki.motohiro@gmail.com>
+
+	* configure.in: add -Wunused-variable to default CFLAGS.
+	  Patch by Eric Wong. [Feature #5157] [ruby-core:38798]
+
+Sun Aug  7 15:37:35 2011  NARUSE, Yui  <naruse@ruby-lang.org>
+
+	* ext/digest/sha2/sha2ossl.c: use original SHA384_Final on DragonFly.
+
+Sun Aug  7 14:08:16 2011  Kazuki Tsujimoto  <kazuki@callcc.net>
+
+	* ext/objspace/objspace.c: fix typos in a document.
+
+Sun Aug  7 07:14:57 2011  NARUSE, Yui  <naruse@ruby-lang.org>
+
+	* cont.c (HAVE_GETCONTEXT): see getcontext(3) because DragonFly BSD
+	  x64 port doesn't have it.
+
+Sun Aug  7 00:42:55 2011  NARUSE, Yui  <naruse@ruby-lang.org>
+
+	* ext/tk/lib/tk/wm.rb (Tk::Wm.command): Add the missing receiver
+	  before calling epath. patched by flori
+	  https://github.com/flori/ruby/commit/aa9474d32e5f2c57f8b0e2e0c528a03f06a4d433
+
+Sat Aug  6 07:06:34 2011  Eric Hodel  <drbrain@segment7.net>
+
+	* marshal.c (w_object):  Fix exception message when _dump_data is not
+	  defined on a T_DATA object.
+
+Fri Aug  5 22:16:20 2011  Naohisa Goto  <ngotogenome@gmail.com>
+
+	* numeric.c (rb_infinity, rb_nan): use WORDS_BIGENDIAN to get endian.
+	  fix [Bug #5160] [ruby-dev:44356]
+
+Fri Aug  5 17:14:11 2011  Akinori MUSHA  <knu@iDaemons.org>
+
+	* test/test_syslog.rb (TestSyslog#test_log): Do not be too
+	  specific about the log line format.  Fixes #5081.
+
+Fri Aug  5 15:57:10 2011  Naohisa Goto  <ngotogenome@gmail.com>
+
+	* complex.c (f_signbit): fix compile error in gcc4 on Solaris with
+	  CFLAGS="-std=gnu99".  [ruby-dev:44355] fix [Bug #5159]
+
+	* math.c: ditto.
+
+Fri Aug  5 15:55:33 2011  Nobuyoshi Nakada  <nobu@ruby-lang.org>
+
+	* test/ruby/test_object.rb: tests that respond_to? returns false.
+
+Fri Aug  5 13:32:43 2011  Shugo Maeda  <shugo@ruby-lang.org>
+
+	* lib/xmlrpc/client.rb, lib/xmlrpc/server.rb: should use
+	  String#bytesize instead of String#size.
+
+Fri Aug  5 12:18:20 2011  Nobuyoshi Nakada  <nobu@ruby-lang.org>
+
+	* vm_eval.c (check_funcall): try respond_to? first if redefined.
+	  [Bug #5158]
+
+Fri Aug 05 09:48:22 2011  Eric Hodel  <drbrain@segment7.net>
+
+	* lib/rubygems:  Import RubyGems 1.8.7:
+	  Added missing require for `gem uninstall --format-executable`.
+
+	  The correct name of the executable being uninstalled is now displayed
+	  with --format-executable.
+
+	  Fixed `gem unpack uninstalled_gem` default version picker.
+
+	  RubyGems no longer claims a nonexistent gem can be uninstalled.
+
+	  `gem which` no longer claims directories are requirable files.
+
+	  `gem cleanup` continues cleaning up gems if one can't be uninstalled
+	  due to permissions.  Issue #82.
+
+	  Gem repository directories are no longer created world-writable.
+	  Patch by Sakuro OZAWA.  [Ruby 1.9 - Bug #4930]
+
+Fri Aug  5 07:00:31 2011  Nobuyoshi Nakada  <nobu@ruby-lang.org>
+
+	* test/io/console/test_io_console.rb (test_noctty): daemon() on
+	  Fedora Rawhide seems not to detach the controlling terminal,
+	  when the argument noclose is non-zero.  ref: [Bug #5135]
+
 Thu Aug  4 23:48:00 2011  Kenta Murata  <mrkn@mrkn.jp>
 
 	* thread_pthread.c (native_cond_signal): retry to call pthread_cond_signal

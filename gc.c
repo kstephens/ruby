@@ -2188,6 +2188,12 @@ gc_lazy_sweep(rb_objspace_t *objspace)
         }
         after_gc_sweep(objspace);
     }
+    else {
+        if (heaps_increment(objspace)) {
+            during_gc = 0;
+            return TRUE;
+        }
+    }
 
     gc_marks(objspace);
 
@@ -2433,6 +2439,7 @@ gc_clear_mark_on_sweep_slots(rb_objspace_t *objspace)
     RVALUE *p, *pend;
 
     if (objspace->heap.sweep_slots) {
+        while (heaps_increment(objspace));
         while (objspace->heap.sweep_slots) {
             scan = objspace->heap.sweep_slots;
             p = scan->slot; pend = p + scan->limit;
