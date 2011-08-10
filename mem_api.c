@@ -121,6 +121,18 @@ rb_gc_unregister_address(VALUE *addr)
   ms.gc_unregister_address(addr);
 }
 
+void 
+rb_gc_define_finalizer(VALUE obj, VALUE proc)
+{
+  ms.gc_define_finalizer(obj, proc);
+}
+
+void 
+rb_gc_undefine_finalizer(VALUE obj)
+{
+  ms.gc_undefine_finalizer(obj);
+}
+
 void rb_gc_at_exit()
 {
   if ( ms.gc_at_exit )

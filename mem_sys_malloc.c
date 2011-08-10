@@ -95,8 +95,52 @@ rb_gc_unregister_address_malloc(VALUE *addr)
   }
 }
 
+static struct finalizer {
+  VALUE obj, block;
+  struct finalizer *next;
+} *finalizers;
+
+static
+void rb_gc_define_finalizer_malloc(VALUE obj, VALUE block)
+{
+  struct finalizer *f = malloc(sizeof(*f));
+  fprintf(stderr, "\n  rb_gc_define_finalizer_malloc(%p, %p)\n", (void*) obj, (void*) block);
+  f->obj = obj;
+  f->block = block;
+  f->next = finalizers;
+  finalizers = f;
+}
+
+static
+void rb_gc_undefine_finalizer_malloc(VALUE obj)
+{
+  struct finalizer **fp = &finalizers, *f;
+  while ( (f = *fp) ) {
+    void *f_next = &(f->next);
+    if ( f->obj == obj ) {
+      free(f);
+      *fp = f->next;
+    }
+    fp = f_next;
+  }
+}
+
+static
+void rb_gc_invoke_all_finalizers_malloc()
+{
+  struct finalizer *f = finalizers;
+  while ( f ) {
+    void *f_next = f->next;
+    fprintf(stderr, "\n  rb_gc_run_finalizer(%p, %p)\n", (void*) f->obj, (void*) f->block);
+    rb_gc_run_finalizer(f->obj, f->block);
+    free(f);
+    f = f_next;
+  }
+}
+
 static void rb_gc_at_exit_malloc()
 {
+  rb_gc_invoke_all_finalizers_malloc();
   if ( show_total_at_exit ) {
     fprintf(stderr, "\n  rb_gc_at_exit_malloc: pid=%d alloc_id=%lu total_size=%lu\n", (int) getpid(), (unsigned long) alloc_id, (unsigned long) total_size);
   }
@@ -126,6 +170,8 @@ rb_mem_sys rb_mem_sys_malloc = {
   rb_gc_markedQ_malloc,
   rb_gc_register_address_malloc,
   rb_gc_unregister_address_malloc,
+  rb_gc_define_finalizer_malloc,
+  rb_gc_undefine_finalizer_malloc,
   rb_gc_at_exit_malloc,
 };
 

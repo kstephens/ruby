@@ -2827,11 +2827,18 @@ static VALUE
 undefine_final(VALUE os, VALUE obj)
 {
     rb_objspace_t *objspace = &rb_objspace;
-    st_data_t data = obj;
     rb_check_frozen(obj);
-    st_delete(finalizer_table, &data, 0);
+    rb_gc_undefine_finalizer(obj);
     FL_UNSET(obj, FL_FINALIZE);
     return obj;
+}
+
+void
+rb_gc_undefine_finalizer_core(VALUE obj)
+{
+    rb_objspace_t *objspace = &rb_objspace;
+    st_data_t data = obj;
+    st_delete(finalizer_table, &data, 0);
 }
 
 /*
@@ -2848,7 +2855,6 @@ define_final(int argc, VALUE *argv, VALUE os)
 {
     rb_objspace_t *objspace = &rb_objspace;
     VALUE obj, block, table;
-    st_data_t data;
 
     rb_scan_args(argc, argv, "11", &obj, &block);
     rb_check_frozen(obj);
@@ -2865,9 +2871,18 @@ define_final(int argc, VALUE *argv, VALUE os)
     }
     RBASIC(obj)->flags |= FL_FINALIZE;
 
+    rb_gc_define_finalizer(obj, block);
+    return block;
+}
+
+void
+rb_gc_define_finalizer_core(VALUE obj, VALUE block)
+{
+    rb_objspace_t *objspace = &rb_objspace;
+    VALUE table;
+    st_data_t data;
     block = rb_ary_new3(2, INT2FIX(rb_safe_level()), block);
     OBJ_FREEZE(block);
-
     if (st_lookup(finalizer_table, obj, &data)) {
 	table = (VALUE)data;
 	rb_ary_push(table, block);
@@ -2877,7 +2892,6 @@ define_final(int argc, VALUE *argv, VALUE os)
 	RBASIC(table)->klass = 0;
 	st_add_direct(finalizer_table, obj, table);
     }
-    return block;
 }
 
 void
@@ -2924,6 +2938,30 @@ run_finalizer(rb_objspace_t *objspace, VALUE objid, VALUE table)
 	args[2] = FIX2INT(RARRAY_PTR(final)[0]);
 	rb_protect(run_single_final, (VALUE)args, &status);
     }
+}
+
+void rb_gc_run_finalizer(VALUE obj, VALUE block)
+{
+  RUBY_DATA_FUNC free_func = 0;
+  VALUE args[2];
+  int status;
+
+  RBASIC(obj)->klass = 0;
+
+  if (RTYPEDDATA_P(obj)) {
+    free_func = RTYPEDDATA_TYPE(obj)->function.dfree;
+  }
+  else {
+    free_func = RDATA(obj)->dfree;
+  }
+  if (free_func) {
+    (*free_func)(DATA_PTR(obj));
+  }
+
+  args[0] = block;
+  args[1] = obj;
+  args[2] = (VALUE) rb_safe_level();
+  rb_protect(run_single_final, (VALUE) args, &status); 
 }
 
 static void

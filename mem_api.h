@@ -41,6 +41,8 @@ typedef struct rb_mem_sys {
   int  (*gc_markedQ)(VALUE object);
   void (*gc_register_address)(VALUE *addr);
   void (*gc_unregister_address)(VALUE *addr);
+  void (*gc_define_finalizer)(VALUE obj, VALUE block);
+  void (*gc_undefine_finalizer)(VALUE obj);
   void (*gc_at_exit)();
   struct rb_mem_sys *next; /* mem_sys_list */
 } rb_mem_sys;
@@ -57,7 +59,11 @@ void rb_gc(void);
 void rb_gc_mark(VALUE);
 void rb_gc_mark_locations(VALUE *start, VALUE *end);
 #endif
-/* Addtional mem system APIs for GC callbacks. */
+void rb_gc_define_finalizer(VALUE obj, VALUE block);
+void rb_gc_undefine_finalizer(VALUE obj);
+void rb_gc_run_finalizer(VALUE obj, VALUE block);
+
+/* Additional mem system APIs for GC callbacks. */
 extern int rb_gc_markedQ(VALUE object);
 
 enum rb_gc_phase {

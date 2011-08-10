@@ -1,36 +1,53 @@
 #!/bin/bash
-set -xe
-branches='trunk trunk-mem-api'
-eval "$@"
-if [ -n "$build" ]
-then
+set -e
+
+_build() { 
 export CFLAGS='-O2 -I/opt/local/include' LDFLAGS='-L/opt/local/lib' 
 for branch in $branches
 do
-  prefix=$HOME/local/ruby-${branch}
-  ruby=$prefix/bin/ruby
+  prefix="$HOME/local/ruby-${branch}"
+  ruby="$prefix/bin/ruby"
 
   git checkout $branch
   (
-      mkdir -p $prefix
-      ./configure --prefix=$prefix 
+      mkdir -p "$prefix"
+      ./configure --prefix="$prefix" 
       make
       make install
-  ) >$branch.build.log 2>&1 || exit 1
+  ) >"$branch.build.log" 2>&1 || exit 1
   make test >/dev/null 2>&1
   time ( make test >/dev/null 2>&1) 
   time ( make test >/dev/null 2>&1) 
 done
-fi
+}
 
-if [ -n "$run" ]
-then
+times() {
+  local n="$1"; shift
+  set -x
+  while [[ $n -ge 0 ]]
+  do
+    let n=$n-1
+    echo n="$n"
+    if [[ $n -eq 0 ]]
+    then
+      set -x
+      time "$@" 
+      #{ set +x; } >/dev/null 2>&1
+    else
+      set -x
+      "$@" >/dev/null 2>&1
+      #{ set +x; } >/dev/null 2>&1
+    fi
+  done
+}
+
+_run() {
 for branch in $branches
 do
-  prefix=$HOME/local/ruby-${branch}
+  prefix="$HOME/local/ruby-${branch}"
   ruby=$prefix/bin/ruby
 
-  time $ruby -e '
+  times 2 $ruby -e '
 x = [ nil ]
 10000000.times do | i |
   x[0] = [ i ]
@@ -40,6 +57,26 @@ puts :OK
 system "ps -l -p #{$$}"
 '
 done
-fi
+}
+
+set -x
+branches='trunk trunk-mem-api'
+{ set +x; } >/dev/null 2>&1
+
+while [ $# -gt 0 ]
+do
+  case "$1"
+  in
+    *=*)
+      set -x
+      eval "$1"
+      { set +x; } >/dev/null 2>&1
+    ;;
+    *)
+      "_$1"
+    ;;
+  esac
+  shift
+done
 
 

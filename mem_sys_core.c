@@ -20,6 +20,8 @@ extern void rb_gc_mark_locations_core(VALUE *start, VALUE *end);
 extern int  rb_gc_markedQ_core(VALUE object);
 extern void rb_gc_register_address_core(VALUE *addr);
 extern void rb_gc_unregister_address_core(VALUE *addr);
+extern void rb_gc_define_finalizer_core(VALUE obj, VALUE proc);
+extern void rb_gc_undefine_finalizer_core(VALUE obj);
 
 extern void rb_gc_at_exit_core();
 extern void Init_GC_core();
@@ -37,6 +39,8 @@ rb_mem_sys rb_mem_sys_core = {
   rb_gc_markedQ_core,
   rb_gc_register_address_core,
   rb_gc_unregister_address_core,
+  rb_gc_define_finalizer_core,
+  rb_gc_undefine_finalizer_core,
   rb_gc_at_exit_core,
 };
 
