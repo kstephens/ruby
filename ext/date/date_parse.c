@@ -392,10 +392,10 @@ date_zone_to_diff(VALUE str)
 	dl = RSTRING_LEN(str) - (sizeof DST - 1);
 	ds = RSTRING_PTR(str) + dl;
 
-	if (strcmp(ss, STD) == 0) {
+	if (sl >= 0 && strcmp(ss, STD) == 0) {
 	    str = rb_str_new(RSTRING_PTR(str), sl);
 	}
-	else if (strcmp(ds, DST) == 0) {
+	else if (dl >= 0 && strcmp(ds, DST) == 0) {
 	    str = rb_str_new(RSTRING_PTR(str), dl);
 	    dst = 1;
 	}
@@ -409,7 +409,7 @@ date_zone_to_diff(VALUE str)
 	    dl = RSTRING_LEN(str) - (sizeof DST - 1);
 	    ds = RSTRING_PTR(str) + dl;
 
-	    if (strcmp(ds, DST) == 0) {
+	    if (dl >= 0 && strcmp(ds, DST) == 0) {
 		str = rb_str_new(RSTRING_PTR(str), dl);
 		dst = 1;
 	    }
@@ -441,8 +441,10 @@ date_zone_to_diff(VALUE str)
 	    char *s, *p;
 	    VALUE sign;
 	    VALUE hour = Qnil, min = Qnil, sec = Qnil;
+	    VALUE str_orig;
 
 	    s = RSTRING_PTR(str);
+	    str_orig = str;
 
 	    if (strncmp(s, "gmt", 3) == 0 ||
 		strncmp(s, "utc", 3) == 0)
@@ -467,6 +469,7 @@ date_zone_to_diff(VALUE str)
 		    }
 		    else
 			min = rb_str_new2(s);
+		    RB_GC_GUARD(str_orig);
 		    goto num;
 		}
 		if (strpbrk(RSTRING_PTR(str), ",.")) {
@@ -1323,8 +1326,8 @@ parse_ddd_cb(VALUE m, VALUE hash)
 	    set_hash("yday", INT2FIX(n2i(cs2,    4, 3)));
 	}
 	break;
-	RB_GC_GUARD(s2);
     }
+    RB_GC_GUARD(s2);
     if (!NIL_P(s3)) {
 	cs3 = RSTRING_PTR(s3);
 	l3 = RSTRING_LEN(s3);

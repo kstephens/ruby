@@ -79,6 +79,10 @@ class TestModule < Test::Unit::TestCase
     }
   end
 
+  def remove_minitest_mixins(list)
+    list.reject {|c| c.to_s.start_with?("MiniTest") }
+  end
+
   module Mixin
     MIXIN = 1
     def mixin
@@ -217,9 +221,9 @@ class TestModule < Test::Unit::TestCase
     assert_equal([Mixin],            Mixin.ancestors)
 
     assert_equal([Object, Kernel, BasicObject],
-                 remove_rake_mixins(remove_json_mixins(remove_pp_mixins(Object.ancestors))))
+                 remove_minitest_mixins(remove_rake_mixins(remove_json_mixins(remove_pp_mixins(Object.ancestors)))))
     assert_equal([String, Comparable, Object, Kernel, BasicObject],
-                 remove_rake_mixins(remove_json_mixins(remove_pp_mixins(String.ancestors))))
+                 remove_minitest_mixins(remove_rake_mixins(remove_json_mixins(remove_pp_mixins(String.ancestors)))))
   end
 
   CLASS_EVAL = 2
@@ -277,9 +281,9 @@ class TestModule < Test::Unit::TestCase
     assert_equal([], Mixin.included_modules)
     assert_equal([Mixin], User.included_modules)
     assert_equal([Kernel],
-                 remove_rake_mixins(remove_json_mixins(remove_pp_mixins(Object.included_modules))))
+                 remove_minitest_mixins(remove_rake_mixins(remove_json_mixins(remove_pp_mixins(Object.included_modules)))))
     assert_equal([Comparable, Kernel],
-                 remove_rake_mixins(remove_json_mixins(remove_pp_mixins(String.included_modules))))
+                 remove_minitest_mixins(remove_rake_mixins(remove_json_mixins(remove_pp_mixins(String.included_modules)))))
   end
 
   def test_instance_methods
@@ -538,6 +542,30 @@ class TestModule < Test::Unit::TestCase
         [e.class, e.name]
       end
     }
+    INPUT
+  end
+
+  def test_const_in_module
+    bug3423 = '[ruby-core:37698]'
+    assert_in_out_err([], <<-INPUT, %w[ok], [], bug3423)
+    module LangModuleSpecInObject
+      module LangModuleTop
+      end
+    end
+    include LangModuleSpecInObject
+    module LangModuleTop
+    end
+    puts "ok" if LangModuleSpecInObject::LangModuleTop == LangModuleTop
+    INPUT
+
+    bug5264 = '[ruby-core:39227]'
+    assert_in_out_err([], <<-'INPUT', [], [], bug5264)
+    class A
+      class X; end
+    end
+    class B < A
+      module X; end
+    end
     INPUT
   end
 

@@ -15,6 +15,8 @@
 #include "transcode_data.h"
 #include <ctype.h>
 
+#define ENABLE_ECONV_NEWLINE_OPTION 1
+
 /* VALUE rb_cEncoding = rb_define_class("Encoding", rb_cObject); */
 VALUE rb_eUndefinedConversionError;
 VALUE rb_eInvalidByteSequenceError;
@@ -367,15 +369,22 @@ load_transcoder_entry(transcoder_entry_t *entry)
     if (entry->lib) {
         const char *lib = entry->lib;
         size_t len = strlen(lib);
-        char path[sizeof(transcoder_lib_prefix) + MAX_TRANSCODER_LIBNAME_LEN];
+        size_t total_len = sizeof(transcoder_lib_prefix) - 1 + len;
+        char *path;
+        VALUE fn;
 
         entry->lib = NULL;
 
         if (len > MAX_TRANSCODER_LIBNAME_LEN)
             return NULL;
+        fn = rb_str_new(0, total_len);
+        path = RSTRING_PTR(fn);
         memcpy(path, transcoder_lib_prefix, sizeof(transcoder_lib_prefix) - 1);
-        memcpy(path + sizeof(transcoder_lib_prefix) - 1, lib, len + 1);
-        if (!rb_require(path))
+        memcpy(path + sizeof(transcoder_lib_prefix) - 1, lib, len);
+        rb_str_set_len(fn, total_len);
+        FL_UNSET(fn, FL_TAINT|FL_UNTRUSTED);
+        OBJ_FREEZE(fn);
+        if (!rb_require_safe(fn, rb_safe_level()))
             return NULL;
     }
 
@@ -1884,6 +1893,7 @@ rb_econv_add_converter(rb_econv_t *ec, const char *sname, const char *dname, int
         return -1;
 
     tr = load_transcoder_entry(entry);
+    if (!tr) return -1;
 
     return rb_econv_add_transcoder_at(ec, tr, n);
 }
@@ -1935,20 +1945,22 @@ rb_econv_binmode(rb_econv_t *ec)
     int n, i, j;
     transcoder_entry_t *entry;
     int num_trans;
+    const char *dname = 0;
 
     n = 0;
-    if (ec->flags & ECONV_UNIVERSAL_NEWLINE_DECORATOR) {
-        entry = get_transcoder_entry("", "universal_newline");
-        if (entry->transcoder)
-            trs[n++] = entry->transcoder;
+    switch (ec->flags & ECONV_NEWLINE_DECORATOR_MASK) {
+      case ECONV_UNIVERSAL_NEWLINE_DECORATOR:
+	dname = "universal_newline";
+	break;
+      case ECONV_CRLF_NEWLINE_DECORATOR:
+	dname = "crlf_newline";
+	break;
+      case ECONV_CR_NEWLINE_DECORATOR:
+	dname = "cr_newline";
+	break;
     }
-    if (ec->flags & ECONV_CRLF_NEWLINE_DECORATOR) {
-        entry = get_transcoder_entry("", "crlf_newline");
-        if (entry->transcoder)
-            trs[n++] = entry->transcoder;
-    }
-    if (ec->flags & ECONV_CR_NEWLINE_DECORATOR) {
-        entry = get_transcoder_entry("", "cr_newline");
+    if (dname) {
+        entry = get_transcoder_entry("", dname);
         if (entry->transcoder)
             trs[n++] = entry->transcoder;
     }
@@ -2533,7 +2545,7 @@ rb_econv_prepare_options(VALUE opthash, VALUE *opts, int ecflags)
 
     if (NIL_P(opthash)) {
         *opts = Qnil;
-        return 0;
+        return ecflags;
     }
     ecflags = econv_opts(opthash, ecflags);
 
@@ -3105,11 +3117,15 @@ search_convpath_i(const char *sname, const char *dname, int depth, void *arg)
  *   #    [#<Encoding:UTF-8>, #<Encoding:EUC-JP>]]
  *
  *   p Encoding::Converter.search_convpath("ISO-8859-1", "EUC-JP", universal_newline: true)
+ *   or
+ *   p Encoding::Converter.search_convpath("ISO-8859-1", "EUC-JP", newline: :universal)
  *   #=> [[#<Encoding:ISO-8859-1>, #<Encoding:UTF-8>],
  *   #    [#<Encoding:UTF-8>, #<Encoding:EUC-JP>],
  *   #    "universal_newline"]
  *
  *   p Encoding::Converter.search_convpath("ISO-8859-1", "UTF-32BE", universal_newline: true)
+ *   or
+ *   p Encoding::Converter.search_convpath("ISO-8859-1", "UTF-32BE", newline: :universal)
  *   #=> [[#<Encoding:ISO-8859-1>, #<Encoding:UTF-8>],
  *   #    "universal_newline",
  *   #    [#<Encoding:UTF-8>, #<Encoding:UTF-32BE>]]
@@ -3254,6 +3270,9 @@ rb_econv_init_by_convpath(VALUE self, VALUE convpath,
  *     :undef => nil              # raise error on undefined conversion (default)
  *     :undef => :replace         # replace undefined conversion
  *     :replace => string         # replacement string ("?" or "\uFFFD" if not specified)
+ *     :newline => :universal     # decorator for converting CRLF and CR to LF
+ *     :newline => :crlf          # decorator for converting LF to CRLF
+ *     :newline => :cr            # decorator for converting LF to CR
  *     :universal_newline => true # decorator for converting CRLF and CR to LF
  *     :crlf_newline => true      # decorator for converting LF to CRLF
  *     :cr_newline => true        # decorator for converting LF to CR
@@ -3500,6 +3519,45 @@ econv_convpath(VALUE self)
         rb_ary_push(result, v);
     }
     return result;
+}
+
+/*
+ * call-seq:
+ *   ec == other        -> true or false
+ */
+static VALUE
+econv_equal(VALUE self, VALUE other)
+{
+    rb_econv_t *ec1 = check_econv(self);
+    rb_econv_t *ec2;
+    int i;
+
+    if (!rb_typeddata_is_kind_of(other, &econv_data_type)) {
+	return Qnil;
+    }
+    ec2 = DATA_PTR(other);
+    if (!ec2) return Qfalse;
+    if (ec1->source_encoding_name != ec2->source_encoding_name &&
+	strcmp(ec1->source_encoding_name, ec2->source_encoding_name))
+	return Qfalse;
+    if (ec1->destination_encoding_name != ec2->destination_encoding_name &&
+	strcmp(ec1->destination_encoding_name, ec2->destination_encoding_name))
+	return Qfalse;
+    if (ec1->flags != ec2->flags) return Qfalse;
+    if (ec1->replacement_enc != ec2->replacement_enc &&
+	strcmp(ec1->replacement_enc, ec2->replacement_enc))
+	return Qfalse;
+    if (ec1->replacement_len != ec2->replacement_len) return Qfalse;
+    if (ec1->replacement_str != ec2->replacement_str &&
+	memcmp(ec1->replacement_str, ec2->replacement_str, ec2->replacement_len))
+	return Qfalse;
+
+    if (ec1->num_trans != ec2->num_trans) return Qfalse;
+    for (i = 0; i < ec1->num_trans; i++) {
+        if (ec1->elems[i].tc->transcoder != ec2->elems[i].tc->transcoder)
+	    return Qfalse;
+    }
+    return Qtrue;
 }
 
 static VALUE
@@ -4381,6 +4439,7 @@ Init_transcode(void)
     rb_define_method(rb_cEncodingConverter, "last_error", econv_last_error, 0);
     rb_define_method(rb_cEncodingConverter, "replacement", econv_get_replacement, 0);
     rb_define_method(rb_cEncodingConverter, "replacement=", econv_set_replacement, 1);
+    rb_define_method(rb_cEncodingConverter, "==", econv_equal, 1);
 
     rb_define_const(rb_cEncodingConverter, "INVALID_MASK", INT2FIX(ECONV_INVALID_MASK));
     rb_define_const(rb_cEncodingConverter, "INVALID_REPLACE", INT2FIX(ECONV_INVALID_REPLACE));

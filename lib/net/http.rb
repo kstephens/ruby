@@ -308,7 +308,7 @@ module Net   #:nodoc:
   # Here is HTTP response class hierarchy.  All classes are defined in Net
   # module and are subclasses of Net::HTTPResponse.
   #
-  # HTTPUnknownResponse:: For unhandled HTTP extenensions
+  # HTTPUnknownResponse:: For unhandled HTTP extensions
   # HTTPInformation::                    1xx
   #   HTTPContinue::                        100
   #   HTTPSwitchProtocol::                  101
@@ -507,14 +507,14 @@ module Net   #:nodoc:
       BufferedIO
     end
 
-    # call-seq:
+    # :call-seq:
     #   HTTP.start(address, port, p_addr, p_port, p_user, p_pass, &block)
     #   HTTP.start(address, port=nil, p_addr=nil, p_port=nil, p_user=nil, p_pass=nil, opt, &block)
     #
     # Creates a new Net::HTTP object, then additionally opens the TCP
     # connection and HTTP session.
     #
-    # Argments are following:
+    # Arguments are the following:
     # _address_ :: hostname or IP address of the server
     # _port_    :: port of the server
     # _p_addr_  :: address of proxy

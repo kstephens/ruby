@@ -4,10 +4,13 @@
 # File a patch instead and assign it to Ryan Davis.
 ######################################################################
 
-require 'minitest/spec'
+require 'minitest/autorun'
 require 'stringio'
 
-MiniTest::Unit.autorun
+class MiniSpecA < MiniTest::Spec; end
+class MiniSpecB < MiniTest::Spec; end
+class ExampleA; end
+class ExampleB < ExampleA; end
 
 describe MiniTest::Spec do
   before do
@@ -202,6 +205,53 @@ describe MiniTest::Spec do
   end
 end
 
+describe MiniTest::Spec, :let do
+  i_suck_and_my_tests_are_order_dependent!
+
+  def _count
+    $let_count ||= 0
+  end
+
+  let :count do
+    $let_count += 1
+    $let_count
+  end
+
+  it "is evaluated once per example" do
+    _count.must_equal 0
+
+    count.must_equal 1
+    count.must_equal 1
+
+    _count.must_equal 1
+  end
+
+  it "is REALLY evaluated once per example" do
+    _count.must_equal 1
+
+    count.must_equal 2
+    count.must_equal 2
+
+    _count.must_equal 2
+  end
+end
+
+describe MiniTest::Spec, :subject do
+  attr_reader :subject_evaluation_count
+
+  subject do
+    @subject_evaluation_count ||= 0
+    @subject_evaluation_count  += 1
+    @subject_evaluation_count
+  end
+
+  it "is evaluated once per example" do
+    subject.must_equal 1
+    subject.must_equal 1
+    subject_evaluation_count.must_equal 1
+  end
+end
+
 class TestMeta < MiniTest::Unit::TestCase
   def test_setup
     srand 42
@@ -234,6 +284,38 @@ class TestMeta < MiniTest::Unit::TestCase
     return x, y, z, before_list, after_list
   end
 
+  def test_register_spec_type
+    original_types = MiniTest::Spec::TYPES.dup
+
+    assert_equal [[//, MiniTest::Spec]], MiniTest::Spec::TYPES
+
+    MiniTest::Spec.register_spec_type(/woot/, TestMeta)
+
+    p = lambda do |x| true end
+    MiniTest::Spec.register_spec_type TestMeta, &p
+
+    keys = MiniTest::Spec::TYPES.map(&:first)
+
+    assert_includes keys, /woot/
+    assert_includes keys, p
+  ensure
+    MiniTest::Spec::TYPES.replace original_types
+  end
+
+  def test_spec_type
+    original_types = MiniTest::Spec::TYPES.dup
+
+    MiniTest::Spec.register_spec_type(/A$/, MiniSpecA)
+    MiniTest::Spec.register_spec_type MiniSpecB do |desc|
+      desc.superclass == ExampleA
+    end
+
+    assert_equal MiniSpecA, MiniTest::Spec.spec_type(ExampleA)
+    assert_equal MiniSpecB, MiniTest::Spec.spec_type(ExampleB)
+  ensure
+    MiniTest::Spec::TYPES.replace original_types
+  end
+
   def test_structure
     x, y, z, * = util_structure
 
@@ -245,8 +327,8 @@ class TestMeta < MiniTest::Unit::TestCase
     assert_equal "inner thingy", y.desc
     assert_equal "very inner thingy", z.desc
 
-    top_methods = %w(setup teardown test_0001_top_level_it)
-    inner_methods = %w(setup teardown test_0001_inner_it)
+    top_methods = %w(test_0001_top_level_it)
+    inner_methods = %w(test_0001_inner_it)
 
     assert_equal top_methods,   x.instance_methods(false).sort.map {|o| o.to_s }
     assert_equal inner_methods, y.instance_methods(false).sort.map {|o| o.to_s }
@@ -257,8 +339,9 @@ class TestMeta < MiniTest::Unit::TestCase
     _, _, z, before_list, after_list = util_structure
 
     tc = z.new(nil)
-    tc.setup
-    tc.teardown
+
+    tc.run_setup_hooks
+    tc.run_teardown_hooks
 
     assert_equal [1, 2, 3], before_list
     assert_equal [3, 2, 1], after_list

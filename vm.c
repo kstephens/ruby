@@ -409,6 +409,8 @@ vm_make_env_each(rb_thread_t * const th, rb_control_frame_t * const cfp,
     if (!RUBY_VM_NORMAL_ISEQ_P(cfp->iseq)) {
 	/* TODO */
 	env->block.iseq = 0;
+    } else {
+	rb_vm_rewrite_dfp_in_errinfo(th, cfp);
     }
     return envval;
 }
@@ -469,6 +471,28 @@ rb_vm_make_env_object(rb_thread_t * th, rb_control_frame_t *cfp)
     }
 
     return envval;
+}
+
+void
+rb_vm_rewrite_dfp_in_errinfo(rb_thread_t *th, rb_control_frame_t *cfp)
+{
+    /* rewrite dfp in errinfo to point to heap */
+    if (RUBY_VM_NORMAL_ISEQ_P(cfp->iseq) &&
+	(cfp->iseq->type == ISEQ_TYPE_RESCUE ||
+	 cfp->iseq->type == ISEQ_TYPE_ENSURE)) {
+	VALUE errinfo = cfp->dfp[-2]; /* #$! */
+	if (RB_TYPE_P(errinfo, T_NODE)) {
+	    VALUE *escape_dfp = GET_THROWOBJ_CATCH_POINT(errinfo);
+	    if (! ENV_IN_HEAP_P(th, escape_dfp)) {
+		VALUE dfpval = *escape_dfp;
+		if (CLASS_OF(dfpval) == rb_cEnv) {
+		    rb_env_t *dfpenv;
+		    GetEnvPtr(dfpval, dfpenv);
+		    SET_THROWOBJ_CATCH_POINT(errinfo, (VALUE)(dfpenv->env + dfpenv->local_size));
+		}
+	    }
+	}
+    }
 }
 
 void
@@ -716,20 +740,10 @@ rb_vm_get_sourceline(const rb_control_frame_t *cfp)
     int line_no = 0;
     const rb_iseq_t *iseq = cfp->iseq;
 
-    if (RUBY_VM_NORMAL_ISEQ_P(iseq) && iseq->insn_info_size > 0) {
-	rb_num_t i;
+    if (RUBY_VM_NORMAL_ISEQ_P(iseq)) {
 	size_t pos = cfp->pc - cfp->iseq->iseq_encoded;
-
-	if (iseq->insn_info_table[0].position == pos) goto found;
-	for (i = 1; i < iseq->insn_info_size; i++) {
-	    if (iseq->insn_info_table[i].position == pos) {
-		line_no = iseq->insn_info_table[i - 1].line_no;
-		goto found;
+	line_no = rb_iseq_line_no(iseq, pos);
 	    }
-	}
-	line_no = iseq->insn_info_table[i - 1].line_no;
-    }
-  found:
     return line_no;
 }
 
@@ -813,6 +827,20 @@ vm_backtrace(rb_thread_t *th, int lev)
     vm_backtrace_each(th, lev, vm_backtrace_alloc, vm_backtrace_push, &ary);
     if (!ary) return Qnil;
     return rb_ary_reverse(ary);
+}
+
+VALUE
+rb_sourcefilename(void)
+{
+    rb_thread_t *th = GET_THREAD();
+    rb_control_frame_t *cfp = rb_vm_get_ruby_level_next_cfp(th, th->cfp);
+
+    if (cfp) {
+	return cfp->iseq->filename;
+    }
+    else {
+	return Qnil;
+    }
 }
 
 const char *
@@ -986,12 +1014,23 @@ rb_iter_break(void)
 static st_table *vm_opt_method_table = 0;
 
 static void
-rb_vm_check_redefinition_opt_method(const rb_method_entry_t *me)
+rb_vm_check_redefinition_opt_method(const rb_method_entry_t *me, VALUE klass)
 {
     st_data_t bop;
     if (!me->def || me->def->type == VM_METHOD_TYPE_CFUNC) {
 	if (st_lookup(vm_opt_method_table, (st_data_t)me, &bop)) {
-	    ruby_vm_redefined_flag[bop] = 1;
+	    int flag = 0;
+
+	    if      (klass == rb_cFixnum) flag = FIXNUM_REDEFINED_OP_FLAG;
+	    else if (klass == rb_cFloat)  flag = FLOAT_REDEFINED_OP_FLAG;
+	    else if (klass == rb_cString) flag = STRING_REDEFINED_OP_FLAG;
+	    else if (klass == rb_cArray)  flag = ARRAY_REDEFINED_OP_FLAG;
+	    else if (klass == rb_cHash)   flag = HASH_REDEFINED_OP_FLAG;
+	    else if (klass == rb_cBignum) flag = BIGNUM_REDEFINED_OP_FLAG;
+	    else if (klass == rb_cSymbol) flag = SYMBOL_REDEFINED_OP_FLAG;
+	    else if (klass == rb_cTime)   flag = TIME_REDEFINED_OP_FLAG;
+
+	    ruby_vm_redefined_flag[bop] |= flag;
 	}
     }
 }
@@ -1786,8 +1825,8 @@ thread_memsize(const void *ptr)
     }
 }
 
-#define thread_data_type ruby_thread_data_type
-const rb_data_type_t ruby_thread_data_type = {
+#define thread_data_type ruby_threadptr_data_type
+const rb_data_type_t ruby_threadptr_data_type = {
     "VM/thread",
     {
 	rb_thread_mark,

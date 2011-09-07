@@ -74,7 +74,7 @@ class RDoc::Markup::ToHtml < RDoc::Markup::Formatter
     @markup.add_special(/((link:|https?:|mailto:|ftp:|www\.)\S+\w)/, :HYPERLINK)
 
     # and links of the form  <text>[<url>]
-    @markup.add_special(/(((\{.*?\})|\b\S+?)\[\S+?\.\S+?\])/, :TIDYLINK)
+    @markup.add_special(/(((\{.*?\})|\b\S+?)\[\S+?\])/, :TIDYLINK)
 
     init_tags
   end
@@ -254,7 +254,7 @@ class RDoc::Markup::ToHtml < RDoc::Markup::Formatter
             end
     end
 
-    if (type == "http" or type == "link") and
+    if (type == "http" or type == "https" or type == "link") and
        url =~ /\.(gif|png|jpg|jpeg|bmp)$/ then
       "<img src=\"#{url}\" />"
     else

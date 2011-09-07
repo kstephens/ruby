@@ -2296,6 +2296,10 @@ rb_thread_priority_set(VALUE thread, VALUE prio)
  * - HP-UX documents how to allocate fd_set dynamically.
  *   http://docs.hp.com/en/B2355-60105/select.2.html
  * - Solaris 8 has select_large_fdset
+ * - Mac OS X 10.7 (Lion)
+ *   select(2) returns EINVAL if nfds is greater than FD_SET_SIZE and
+ *   _DARWIN_UNLIMITED_SELECT (or _DARWIN_C_SOURCE) isn't defined.
+ *   http://developer.apple.com/library/mac/#releasenotes/Darwin/SymbolVariantsRelNotes/_index.html
  *
  * When fd_set is not big enough to hold big file descriptors,
  * it should be allocated dynamically.
@@ -2682,29 +2686,39 @@ int
 rb_thread_select(int max, fd_set * read, fd_set * write, fd_set * except,
 		 struct timeval *timeout)
 {
-    if (!read && !write && !except) {
-	if (!timeout) {
-	    rb_thread_sleep_forever();
-	    return 0;
-	}
-	rb_thread_wait_for(*timeout);
-	return 0;
-    }
-    else {
-	int lerrno = errno;
-	int result;
+    rb_fdset_t fdsets[3];
+    rb_fdset_t *rfds = NULL;
+    rb_fdset_t *wfds = NULL;
+    rb_fdset_t *efds = NULL;
+    int retval;
 
-	BLOCKING_REGION({
-		result = select(max, read, write, except, timeout);
-		if (result < 0)
-		    lerrno = errno;
-	    }, ubf_select, GET_THREAD());
-	errno = lerrno;
-
-	return result;
+    if (read) {
+	rfds = &fdsets[0];
+	rb_fd_init(rfds);
+	rb_fd_copy(rfds, read, max);
     }
+    if (write) {
+	wfds = &fdsets[1];
+	rb_fd_init(wfds);
+	rb_fd_copy(wfds, write, max);
+    }
+    if (except) {
+	efds = &fdsets[2];
+	rb_fd_init(wfds);
+	rb_fd_copy(efds, except, max);
+    }
+
+    retval = rb_thread_fd_select(max, rfds, wfds, efds, timeout);
+
+    if (rfds)
+	rb_fd_term(rfds);
+    if (wfds)
+	rb_fd_term(wfds);
+    if (efds)
+	rb_fd_term(efds);
+
+    return retval;
 }
-
 
 int
 rb_thread_fd_select(int max, rb_fdset_t * read, rb_fdset_t * write, rb_fdset_t * except,
@@ -4760,7 +4774,7 @@ update_coverage(rb_event_flag_t event, VALUE proc, VALUE self, ID id, VALUE klas
 	long line = rb_sourceline() - 1;
 	long count;
 	if (RARRAY_PTR(coverage)[line] == Qnil) {
-	    rb_bug("bug");
+	    return;
 	}
 	count = FIX2LONG(RARRAY_PTR(coverage)[line]) + 1;
 	if (POSFIXABLE(count)) {

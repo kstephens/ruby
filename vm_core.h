@@ -176,8 +176,8 @@ struct rb_iseq_struct {
     unsigned short line_no;
 
     /* insn info, must be freed */
-    struct iseq_insn_info_entry *insn_info_table;
-    size_t insn_info_size;
+    struct iseq_line_info_entry *line_info_table;
+    size_t line_info_size;
 
     ID *local_table;		/* must free */
     int local_table_size;
@@ -350,10 +350,10 @@ typedef struct rb_block_struct {
     VALUE proc;
 } rb_block_t;
 
-extern const rb_data_type_t ruby_thread_data_type;
+extern const rb_data_type_t ruby_threadptr_data_type;
 
 #define GetThreadPtr(obj, ptr) \
-    TypedData_Get_Struct((obj), rb_thread_t, &ruby_thread_data_type, (ptr))
+    TypedData_Get_Struct((obj), rb_thread_t, &ruby_threadptr_data_type, (ptr))
 
 enum rb_thread_status {
     THREAD_TO_KILL,
@@ -649,6 +649,7 @@ VALUE rb_vm_invoke_proc(rb_thread_t *th, rb_proc_t *proc, VALUE self,
 			int argc, const VALUE *argv, const rb_block_t *blockptr);
 VALUE rb_vm_make_proc(rb_thread_t *th, const rb_block_t *block, VALUE klass);
 VALUE rb_vm_make_env_object(rb_thread_t *th, rb_control_frame_t *cfp);
+void rb_vm_rewrite_dfp_in_errinfo(rb_thread_t *th, rb_control_frame_t *cfp);
 void rb_vm_inc_const_missing_count(void);
 void rb_vm_gvl_destroy(rb_vm_t *vm);
 VALUE rb_vm_call(rb_thread_t *th, VALUE recv, VALUE id, int argc,
@@ -673,6 +674,8 @@ void ruby_thread_init_stack(rb_thread_t *th);
 
 NOINLINE(void rb_gc_save_machine_context(rb_thread_t *));
 void rb_gc_mark_machine_stack(rb_thread_t *th);
+
+int rb_autoloading_value(VALUE mod, ID id, VALUE* value);
 
 #define sysstack_error GET_VM()->special_exceptions[ruby_error_sysstack]
 

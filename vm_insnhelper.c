@@ -118,8 +118,8 @@ argument_error(const rb_iseq_t *iseq, int miss_argc, int correct_argc)
     if (iseq) {
 	int line_no = 1;
 
-	if (iseq->insn_info_size) {
-	    line_no = iseq->insn_info_table[0].line_no;
+	if (iseq->line_info_size) {
+	    line_no = iseq->line_info_table[0].line_no;
 	}
 
 	err_line = rb_sprintf("%s:%d:in `%s'",
@@ -1178,7 +1178,7 @@ vm_get_ev_const(rb_thread_t *th, const rb_iseq_t *iseq,
 	    cref = cref->nd_next;
 
 	    if (!NIL_P(klass)) {
-		VALUE am = 0;
+		VALUE av, am = 0;
 		st_data_t data;
 	      search_continue:
 		if (RCLASS_CONST_TBL(klass) &&
@@ -1188,6 +1188,7 @@ vm_get_ev_const(rb_thread_t *th, const rb_iseq_t *iseq,
 			if (am == klass) break;
 			am = klass;
 			if (is_defined) return 1;
+			if (rb_autoloading_value(klass, id, &av)) return av;
 			rb_autoload_load(klass, id);
 			goto search_continue;
 		    }
@@ -1252,6 +1253,19 @@ vm_get_cvar_base(NODE *cref)
     return klass;
 }
 
+static VALUE
+vm_search_const_defined_class(const VALUE cbase, ID id)
+{
+    if (rb_const_defined_at(cbase, id)) return cbase;
+    if (cbase == rb_cObject) {
+	VALUE tmp = RCLASS_SUPER(cbase);
+	while (tmp) {
+	    if (rb_const_defined_at(tmp, id)) return tmp;
+	    tmp = RCLASS_SUPER(tmp);
+	}
+    }
+    return 0;
+}
 
 #ifndef USE_IC_FOR_IVAR
 #define USE_IC_FOR_IVAR 1
@@ -1696,13 +1710,13 @@ VALUE
 opt_eq_func(VALUE recv, VALUE obj, IC ic)
 {
     if (FIXNUM_2_P(recv, obj) &&
-	BASIC_OP_UNREDEFINED_P(BOP_EQ)) {
+	BASIC_OP_UNREDEFINED_P(BOP_EQ, FIXNUM_REDEFINED_OP_FLAG)) {
 	return (recv == obj) ? Qtrue : Qfalse;
     }
     else if (!SPECIAL_CONST_P(recv) && !SPECIAL_CONST_P(obj)) {
 	if (HEAP_CLASS_OF(recv) == rb_cFloat &&
 		 HEAP_CLASS_OF(obj) == rb_cFloat &&
-		 BASIC_OP_UNREDEFINED_P(BOP_EQ)) {
+		 BASIC_OP_UNREDEFINED_P(BOP_EQ, FLOAT_REDEFINED_OP_FLAG)) {
 	    double a = RFLOAT_VALUE(recv);
 	    double b = RFLOAT_VALUE(obj);
 
@@ -1713,7 +1727,7 @@ opt_eq_func(VALUE recv, VALUE obj, IC ic)
 	}
 	else if (HEAP_CLASS_OF(recv) == rb_cString &&
 		 HEAP_CLASS_OF(obj) == rb_cString &&
-		 BASIC_OP_UNREDEFINED_P(BOP_EQ)) {
+		 BASIC_OP_UNREDEFINED_P(BOP_EQ, STRING_REDEFINED_OP_FLAG)) {
 	    return rb_str_equal(recv, obj);
 	}
     }

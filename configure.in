@@ -33,7 +33,10 @@ AC_CACHE_CHECK(for mingw32 environment, rb_cv_mingw32,
 #endif
 ], rb_cv_mingw32=yes,rb_cv_mingw32=no)
 rm -f conftest*])
-test "$rb_cv_mingw32" = yes && target_os="mingw32"
+if test "$rb_cv_mingw32" = yes; then
+    target_os="mingw32"
+    : ${ac_tool_prefix:="`expr "$CC" : ['\(.*-\)g\?cc[^/]*$']`"}
+fi
 ])
 AS_CASE(["$target_os"], [mingw*msvc], [
 target_os="`echo ${target_os} | sed 's/msvc$//'`"
@@ -280,6 +283,7 @@ fi
 if test x"${build}" != x"${host}"; then
   AC_CHECK_TOOL(CC, gcc)
 fi
+RUBY_MINGW32
 AC_PROG_CC
 AC_PROG_CXX
 AC_PROG_GCC_TRADITIONAL
@@ -302,7 +306,6 @@ RUBY_CPPOUTFILE
 AC_SUBST(OUTFLAG)
 AC_SUBST(COUTFLAG)
 
-RUBY_MINGW32
 RUBY_UNIVERSAL_ARCH
 if test "$target_cpu" != "$host_cpu" -a "$GCC" = yes -a "$cross_compiling" = no -a "$universal_binary" = no; then
     RUBY_DEFAULT_ARCH("$target_cpu")
@@ -930,15 +933,11 @@ dnl Checks for libraries.
 AS_CASE(["$target_os"],[*bsd*|dragonfly*],[],[ac_cv_func_daemon=no])
 
 AS_CASE(["$target_os"],
-[solaris*], [
-		AC_DEFINE(SIZEOF_STRUCT_DIRENT_TOO_SMALL, 1)
-		LIBS="-lm $LIBS"
-		],
 [nextstep*], [	],
 [openstep*], [	],
 [rhapsody*], [	],
 [darwin*], [	RUBY_PREPEND_OPTION(LIBS, -lobjc)
-		RUBY_APPEND_OPTIONS(CPPFLAGS, -D_XOPEN_SOURCE -D_DARWIN_C_SOURCE)
+		RUBY_APPEND_OPTIONS(CPPFLAGS, -D_XOPEN_SOURCE -D_DARWIN_C_SOURCE -D_DARWIN_UNLIMITED_SELECT)
 		AC_MSG_CHECKING(whether Mac OS X 10.5 or later)
 		AC_TRY_CPP([#include <AvailabilityMacros.h>
 		    #if MAC_OS_X_VERSION_MAX_ALLOWED <= 1040
@@ -1143,7 +1142,7 @@ AC_CHECK_HEADERS(limits.h sys/file.h sys/ioctl.h sys/syscall.h\
 		 syscall.h pwd.h grp.h a.out.h utime.h direct.h sys/resource.h \
 		 sys/mkdev.h sys/utime.h xti.h netinet/in_systm.h float.h ieeefp.h \
 		 ucontext.h intrinsics.h langinfo.h locale.h sys/sendfile.h time.h \
-		 net/socket.h sys/socket.h)
+		 net/socket.h sys/socket.h process.h)
 
 AC_TYPE_SIZE_T
 RUBY_CHECK_SIZEOF(size_t, [int long void*], [], [@%:@include <sys/types.h>])
@@ -1726,6 +1725,38 @@ fi
 
 RUBY_CHECK_SIZEOF([struct stat.st_ino], [long "long long"], [], [@%:@include <sys/stat.h>])
 
+AC_CACHE_CHECK([whether struct dirent.d_name is too small], rb_cv_sizeof_struct_dirent_too_small,
+  [AC_COMPILE_IFELSE(
+    [AC_LANG_BOOL_COMPILE_TRY([AC_INCLUDES_DEFAULT([
+@%:@if defined _WIN32
+@%:@ error <<<struct direct in win32/dir.h has variable length d_name>>>
+@%:@elif defined HAVE_DIRENT_H
+@%:@ include <dirent.h>
+@%:@elif defined HAVE_DIRECT_H
+@%:@ include <direct.h>
+@%:@else
+@%:@ define dirent direct
+@%:@ if HAVE_SYS_NDIR_H
+@%:@  include <sys/ndir.h>
+@%:@ endif
+@%:@ if HAVE_SYS_DIR_H
+@%:@  include <sys/dir.h>
+@%:@ endif
+@%:@ if HAVE_NDIR_H
+@%:@  include <ndir.h>
+@%:@ endif
+@%:@endif
+@%:@include <stddef.h>
+@%:@define numberof(array) [(int)(sizeof(array) / sizeof((array)[0]))]
+struct dirent d;
+])],
+      [offsetof(struct dirent, [d_name[numberof(d.d_name)]]) - offsetof(struct dirent, d_name) < 256])],
+    [rb_cv_sizeof_struct_dirent_too_small=yes],
+    [rb_cv_sizeof_struct_dirent_too_small=no])])
+if test "$rb_cv_sizeof_struct_dirent_too_small" = yes; then
+  AC_DEFINE(SIZEOF_STRUCT_DIRENT_TOO_SMALL, 1)
+fi
+
 if test "$ac_cv_func_sysconf" = yes; then
   AC_DEFUN([RUBY_CHECK_SYSCONF], [dnl
   AC_CACHE_CHECK([whether _SC_$1 is supported], rb_cv_have_sc_[]m4_tolower($1),
@@ -2018,6 +2049,9 @@ if test "$with_dln_a_out" != yes; then
 			    fi
 			else
 			    : ${LDSHARED='$(CC) -G'}
+			fi
+			if test "$ac_cv_sizeof_voidp" = 8; then
+			    : ${LIBPATHENV=LD_LIBRARY_PATH_64}
 			fi
 			rb_cv_dlopen=yes],
 	[sunos*], [	: ${LDSHARED='ld -assert nodefinitions'}
@@ -2776,7 +2810,7 @@ else
 fi
 
 AC_ARG_WITH(sitedir,
-	    AS_HELP_STRING([--with-sitedir=DIR], [site libraries in DIR [[RUBY_LIB_PREFIX/site_ruby]]]),
+	    AS_HELP_STRING([--with-sitedir=DIR], [site libraries in DIR [[RUBY_LIB_PREFIX/site_ruby]], "no" to disable site directory]),
             [sitedir=$withval],
             [sitedir='${rubylibprefix}/site_ruby'])
 dir="${sitedir}"
@@ -2785,7 +2819,7 @@ until SITE_DIR=`eval echo \\"${dir}\\"`; test "x${dir}" = "x${SITE_DIR}"; do
 done
 
 AC_ARG_WITH(vendordir,
-	    AS_HELP_STRING([--with-vendordir=DIR], [vendor libraries in DIR [[RUBY_LIB_PREFIX/vendor_ruby]]]),
+	    AS_HELP_STRING([--with-vendordir=DIR], [vendor libraries in DIR [[RUBY_LIB_PREFIX/vendor_ruby]], "no" to disable vendor directory]),
             [vendordir=$withval],
             [vendordir='${rubylibprefix}/vendor_ruby'])
 dir="${vendordir}"
