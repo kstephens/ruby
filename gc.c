@@ -11,7 +11,6 @@
 
 **********************************************************************/
 
-#if ! defined GC_MARK_CHILDREN_H
 #include "ruby/ruby.h"
 #include "ruby/st.h"
 #include "ruby/re.h"
@@ -1656,7 +1655,6 @@ rb_gc_mark_core(VALUE ptr)
 {
     gc_mark(&rb_objspace, ptr, 0);
 }
-#endif /* #if ! defined GC_MARK_CHILDREN_H */
 
 static void
 gc_mark_children(rb_objspace_t *objspace, VALUE ptr, int lev)
@@ -1930,7 +1928,6 @@ gc_mark_children(rb_objspace_t *objspace, VALUE ptr, int lev)
     }
 }
 
-#if ! defined GC_MARK_CHILDREN_H
 
 static int obj_free(rb_objspace_t *, VALUE);
 
@@ -3694,4 +3691,3 @@ Init_GC(void)
 #endif
 }
 
-#endif /* #if ! defined GC_MARK_CHILDREN_H */
