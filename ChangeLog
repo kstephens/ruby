@@ -1,3 +1,223 @@
+Tue Sep 20 18:08:51 2011  Nobuyoshi Nakada  <nobu@ruby-lang.org>
+
+	* vm_insnhelper.c (vm_get_cvar_base): reduce duplicated checks and
+	  move a warning outside the loop.
+
+Mon Sep 19 18:55:51 2011  Ayumu AIZAWA  <ayumu.aizawa@gmail.com>
+
+	* lib/fileutils.rb (module FileUtils): improve performance of
+	  FileUtils.compare_stream. a patch by Masaki Matsushita.
+	  [Feature #5337] [ruby-core:39622]
+
+Mon Sep 19 18:42:58 2011  KOSAKI Motohiro  <kosaki.motohiro@gmail.com>
+
+	* test/-ext-/old_thread_select/test_old_thread_select.rb:
+	  select() with timeout may return early in old Linux kernels
+	  with 250 Hz tickrate and no dynticks, so skip everything older
+	  than 2.6.32 (which has long term support).
+	  And, Make the timing assertions consistently use assert_operator with
+	  timing difference in error message
+	  Patch by Eric Wong. [Bug #5335] [ruby-core:39618]
+
+Mon Sep 19 09:28:06 2011  Eric Hodel  <drbrain@segment7.net>
+
+	* test/openssl/test_ssl.rb (class OpenSSL):  Test
+	  OpenSSL::SSL::SSLSocket#session and #session=.
+
+Mon Sep 19 07:54:17 2011  Nobuyoshi Nakada  <nobu@ruby-lang.org>
+
+	* object.c (rb_obj_clone): singleton class should be attached
+	  singleton object to.  a patch by Satoshi Shiba <shiba AT rvm.jp>
+	  at [ruby-dev:44460].  [Bug #5274]
+
+Sat Sep 17 23:34:10 2011  Nobuyoshi Nakada  <nobu@ruby-lang.org>
+
+	* parse.y (parser_data_type): inherit the core type in ripper so
+	  that checks in core would work.  [ruby-core:39591] [Bug #5331]
+
+Sat Sep 17 12:44:04 2011  Kazuki Tsujimoto  <kazuki@callcc.net>
+
+	* lib/find.rb (Find.find): add documentation that Find.find
+	  without block returns an enumerator.
+
+Thu Sep 15 11:39:43 2011  Nobuyoshi Nakada  <nobu@ruby-lang.org>
+
+	* gc.c (mark_entry, mark_key, mark_keyvalue): adjust callback
+	  argument types.
+
+Thu Sep 15 01:44:10 2011  Ayumu AIZAWA  <ayumu.aizawa@gmail.com>
+
+	* ext/tk/*: Change encoding from EUC-JP to UTF-8
+
+Wed Sep 14 11:43:37 2011  KOSAKI Motohiro  <kosaki.motohiro@gmail.com>
+
+	* thread.c (rb_fd_rcopy): added an argument guard.
+	  Patch by NAKAMURA Usaku. [Bug #5306] [ruby-core:39435]
+
+Tue Sep 13 20:21:49 2011  Nobuyoshi Nakada  <nobu@ruby-lang.org>
+
+	* lib/pstore.rb, test/test_pstore.rb: suppress warnings with -v.
+
+	* lib/pstore.rb (PStore): always open in binary mode even if
+	  default encodings are set.  [Bug #5311] [ruby-core:39503]
+
+Tue Sep 13 05:37:15 2011  Yukihiro Matsumoto  <matz@ruby-lang.org>
+
+	* io.c (Init_IO): update BINARY comment.  it should not change the
+	  encoding of the result to ASCII-8BIT.  [ruby-talk:387719]
+
+Mon Sep 12 19:55:00 2011  KOSAKI Motohiro  <kosaki.motohiro@gmail.com>
+
+	* thread.c (rb_thread_select): fix to ignore an argument
+	  modification of rb_thread_fd_select().
+	  based on a patch by Eric Wong. [Bug #5306] [ruby-core:39435]
+	* thread.c (rb_fd_rcopy): New. for reverse fd copy.
+
+	* test/-ext-/old_thread_select/test_old_thread_select.rb
+	(test_old_select_false_positive): test for bug5306.
+
+	* ext/-test-/old_thread_select/old_thread_select.c (fdset2array):
+	  New. convert fdsets to array.
+	* ext/-test-/old_thread_select/old_thread_select.c (old_thread_select):
+	  return 'read', 'write', 'except' argument of rb_thread_select()
+	  to ruby script.
+
+Mon Sep 12 13:38:12 2011  Nobuyoshi Nakada  <nobu@ruby-lang.org>
+
+	* README.EXT, README.EXT.ja (2.2.2), parse.y (rb_check_id): add
+	  documents for rb_check_id().
+
+Mon Sep 12 12:53:39 2011  NAKAMURA Usaku  <usa@ruby-lang.org>
+
+	* lib/rake/file_list.rb (Rake::FileList#egrep): there is no need to
+	  open files in binary mode.
+	  see more details in https://github.com/jimweirich/rake/issues/74
+
+Mon Sep 12 12:42:36 2011  Nobuyoshi Nakada  <nobu@ruby-lang.org>
+
+	* test/ruby/test_exception.rb (TestException#test_exit_success_p):
+	  assert also the cases when exiting with true and false.
+
+	* lib/test/unit/assertions.rb (assert_send): make arguments in
+	  the default message clearer.
+
+Sun Sep 11 05:23:14 2011  Marc-Andre Lafortune  <ruby-core@marc-andre.ca>
+
+	* lib/matrix.rb: Deal with subclasses of Matrix [redmine #5307]
+
+Sat Sep 10 13:38:20 2011  Ayumu AIZAWA  <ayumu.aizawa@gmail.com>
+
+	* dir.c (dir_s_aref):
+	* dir.c (dir_entries): Two small documentation fixes.
+	  A patch from Aaron Lerch. [Bug #5302] [ruby-core:39404]
+
+Sat Sep 10 08:30:03 2011  Koichi Sasada  <ko1@atdot.net>
+
+	* gc.c (GC_PROFILE_MORE_DETAIL, CALC_EXACT_MALLOC_SIZE):
+	  define macros only if they are not defined.
+	  fixes: [Ruby 1.9 - Feature #5291]
+
+Sat Sep 10 08:25:47 2011  Yukihiro Matsumoto  <matz@ruby-lang.org>
+
+	* parse.y (bv_decls): parse.y relies on $$ = $1 before action
+	  routines.  a patch from Michael Edgar.  [Bug #5303]
+	  [ruby-core:39429]
+
+Sat Sep 10 01:37:55 2011  Kazuhiro NISHIYAMA  <zn@mbf.nifty.com>
+
+	* sample/drb/dhasenc.rb: coding cookie of Emacs is coding,
+	  not encoding.
+
+	* sample/mine.rb: ditto.
+
+Fri Sep  9 21:56:40 2011  Ayumu AIZAWA  <ayumu.aizawa@gmail.com>
+
+	* ext/bigdecimal/bigdecimal.c (BigDecimal_sqrt): Fix comment.
+	  BigDecimal#sqrt requires argument. Reported by Makoto Kishimoto.
+	  Thanks for your contribution. [Bug #5267] [ruby-dev:44452]
+
+Fri Sep  9 11:00:55 2011  Shota Fukumori  <sorah@tubusu.net>
+
+	* test/rubygems/test_gem_commands_help_command.rb: Add one
+	  `require` because if run test-all with test/unit parallel
+	  running, sometimes this test fails by some constants not found.
+	  The error reason is some worker doesn't require the file needed by
+	  this test. This issue is related to [ruby-core:36168].
+
+Fri Sep  9 10:22:03 2011  Nobuyoshi Nakada  <nobu@ruby-lang.org>
+
+	* thread.c (rb_thread_select): fix a typo to initialize efds
+	  properly.  [Bug #5299] [ruby-core:39380]
+
+Fri Sep  9 02:02:09 2011  Ayumu AIZAWA  <ayumu.aizawa@gmail.com>
+
+	* template/yarvarch.ja:
+	  Change encoding from Shift-JIS to UTF-8
+
+Thu Sep  9 01:14:00 2011  Ayumu AIZAWA  <ayumu.aizawa@gmail.com>
+
+	* sample/drb/README.rd.ja:
+	* sample/drb/dhasenc.rb:
+	* sample/mine.rb:
+	  Change encoding from EUC-JP to UTF-8
+
+Thu Sep  8 21:03:22 2011  NARUSE, Yui  <naruse@ruby-lang.org>
+
+	* ext/nkf/nkf-utf8/nkf.c: import nkf 2.1.2 (be9c280)
+	  Bump version number/release date only.
+
+Thu Sep  8 12:43:18 2011  Narihiro Nakamura  <authornari@gmail.com>
+
+	* gc.c (Init_GC): defined GC::Profiler.raw_data. based on the
+	  patch by Eric Hodel. [ruby-core:37857] [Bug #4991]
+
+Thu Sep  8 09:02:53 2011  Nobuyoshi Nakada  <nobu@ruby-lang.org>
+
+	* gc.c (id2ref): objects which are unmarked but not in sweep_slots
+	  are not dead.
+
+Thu Sep  8 07:44:25 2011  Nobuyoshi Nakada  <nobu@ruby-lang.org>
+
+	* transcode.c (rb_declare_transcoder, load_transcoder_entry): no
+	  longer need to limit the length of transcoder library name.
+
+Thu Sep  8 07:36:36 2011  NARUSE, Yui  <naruse@ruby-lang.org>
+
+	* ext/syck/lib/syck/types.rb: use toplevel Syck.
+	  for the case someone define Syck::Syck (or YAML::Syck).
+
+Thu Sep  8 07:33:12 2011  Nobuyoshi Nakada  <nobu@ruby-lang.org>
+
+	* gc.c (id2ref): unmarked object is already dead while lazy
+	  sweeping, and to it cannot come back since other objects
+	  referred from it might have been freed already.
+
+Wed Sep  8 03:48:00 2011  Ayumu AIZAWA  <ayumu.aizawa@gmail.com>
+
+	* ext/readline/README.ja:
+	  Change encoding from EUC-JP to UTF-8
+
+Wed Sep  8 02:59:00 2011  Ayumu AIZAWA  <ayumu.aizawa@gmail.com>
+
+	* test/rexml/test_encoding.rb:
+	  Add require 'require 'rexml/document'
+
+Wed Sep  8 02:53:00 2011  Ayumu AIZAWA  <ayumu.aizawa@gmail.com>
+
+	* ext/nkf/nkf-utf8/nkf.c:
+	  Change encoding from ISO-2022 to UTF-8
+
+Wed Sep  7 23:41:24 2011  Kouhei Sutou  <kou@cozmixng.org>
+
+	* lib/rexml/parsers/baseparser.rb, test/rexml/test_comment.rb:
+	  allow a single hyphen in comment. [Bug #5278] [ruby-core:39289]
+	  Reported by Thomas Fritzsche. Thanks!!!
+
+Wed Sep  7 17:27:18 2011  NARUSE, Yui  <naruse@ruby-lang.org>
+
+	* lib/yaml.rb: explicitly specify ::Object to avoid the collision with
+	  Syck::Object.
+
 Tue Sep  6 21:06:49 2011  Shota Fukumori  <sorah@tubusu.net>
 
 	* lib/test/unit.rb (_run_suites): Now reports are written the
@@ -14,7 +234,7 @@ Tue Sep  6 21:13:47 2011  Masaya Tarui  <tarui@ruby-lang.org>
 
 	* win32/Makefile.sub (INSNS): change command line option -Ks to -Ku
 	  for generate *.inc. because insns.def encoding has been changed SJIS
-	  to UTF-8. if $BASERUBY is 1.9, -Ks cause an error. [Feature #5128] 
+	  to UTF-8. if $BASERUBY is 1.9, -Ks cause an error. [Feature #5128]
 	  (same as r33194)
 
 Tue Sep  6 15:55:24 2011  Nobuyoshi Nakada  <nobu@ruby-lang.org>

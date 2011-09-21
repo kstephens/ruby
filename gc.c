@@ -94,7 +94,10 @@ static unsigned int initial_free_min       = FREE_MIN;
 int ruby_gc_debug_indent = 0;
 
 /* for GC profile */
+#ifndef GC_PROFILE_MORE_DETAIL
 #define GC_PROFILE_MORE_DETAIL 0
+#endif
+
 typedef struct gc_profile_record {
     double gc_time;
     double gc_mark_time;
@@ -312,7 +315,9 @@ struct gc_list {
     struct gc_list *next;
 };
 
+#ifndef CALC_EXACT_MALLOC_SIZE
 #define CALC_EXACT_MALLOC_SIZE 0
+#endif
 
 typedef struct rb_objspace {
     struct {
@@ -392,6 +397,8 @@ int *ruby_initial_gc_stress_ptr = &rb_objspace.gc_stress;
 #define mark_stack_overflow	objspace->markstack.overflow
 #define global_List		objspace->global_list
 #define ruby_gc_stress		objspace->gc_stress
+
+#define is_lazy_sweeping(objspace) ((objspace)->heap.sweep_slots != 0)
 
 static void rb_objspace_call_finalizer(rb_objspace_t *objspace);
 
@@ -1444,10 +1451,10 @@ struct mark_tbl_arg {
 };
 
 static int
-mark_entry(ID key, VALUE value, st_data_t data)
+mark_entry(st_data_t key, st_data_t value, st_data_t data)
 {
     struct mark_tbl_arg *arg = (void*)data;
-    gc_mark(arg->objspace, value, arg->lev);
+    gc_mark(arg->objspace, (VALUE)value, arg->lev);
     return ST_CONTINUE;
 }
 
@@ -1462,10 +1469,10 @@ mark_tbl(rb_objspace_t *objspace, st_table *tbl, int lev)
 }
 
 static int
-mark_key(VALUE key, VALUE value, st_data_t data)
+mark_key(st_data_t key, st_data_t value, st_data_t data)
 {
     struct mark_tbl_arg *arg = (void*)data;
-    gc_mark(arg->objspace, key, arg->lev);
+    gc_mark(arg->objspace, (VALUE)key, arg->lev);
     return ST_CONTINUE;
 }
 
@@ -1486,11 +1493,11 @@ rb_mark_set(st_table *tbl)
 }
 
 static int
-mark_keyvalue(VALUE key, VALUE value, st_data_t data)
+mark_keyvalue(st_data_t key, st_data_t value, st_data_t data)
 {
     struct mark_tbl_arg *arg = (void*)data;
-    gc_mark(arg->objspace, key, arg->lev);
-    gc_mark(arg->objspace, value, arg->lev);
+    gc_mark(arg->objspace, (VALUE)key, arg->lev);
+    gc_mark(arg->objspace, (VALUE)value, arg->lev);
     return ST_CONTINUE;
 }
 
@@ -2151,10 +2158,10 @@ static void
 rest_sweep(rb_objspace_t *objspace)
 {
     if (objspace->heap.sweep_slots) {
-       while (objspace->heap.sweep_slots) {
-           lazy_sweep(objspace);
-       }
-       after_gc_sweep(objspace);
+	while (objspace->heap.sweep_slots) {
+	    lazy_sweep(objspace);
+	}
+	after_gc_sweep(objspace);
     }
 }
 
@@ -3135,6 +3142,20 @@ rb_gc_core(void)
     free_unused_heaps(objspace);
 }
 
+static inline int
+is_dead_object(rb_objspace_t *objspace, VALUE ptr)
+{
+    struct heaps_slot *slot = objspace->heap.sweep_slots;
+    if (!is_lazy_sweeping(objspace) || (RBASIC(ptr)->flags & FL_MARK))
+	return FALSE;
+    while (slot) {
+	if ((VALUE)slot->slot <= ptr && ptr < (VALUE)(slot->slot + slot->limit))
+	    return TRUE;
+	slot = slot->next;
+    }
+    return FALSE;
+}
+
 /*
  *  call-seq:
  *     ObjectSpace._id2ref(object_id) -> an_object
@@ -3181,7 +3202,8 @@ id2ref(VALUE obj, VALUE objid)
 	BUILTIN_TYPE(ptr) > T_FIXNUM || BUILTIN_TYPE(ptr) == T_ICLASS) {
 	rb_raise(rb_eRangeError, "%p is not id value", p0);
     }
-    if (BUILTIN_TYPE(ptr) == 0 || RBASIC(ptr)->klass == 0) {
+    if (BUILTIN_TYPE(ptr) == 0 || RBASIC(ptr)->klass == 0 ||
+	is_dead_object(objspace, ptr)) {
 	rb_raise(rb_eRangeError, "%p is recycled object", p0);
     }
     return (VALUE)ptr;
@@ -3468,6 +3490,33 @@ gc_malloc_allocations(VALUE self)
 }
 #endif
 
+/*
+ *  call-seq:
+ *     GC::Profiler.raw_data -> [Hash, ...]
+ *
+ *  Returns an Array of individual raw profile data Hashes ordered
+ *  from earliest to latest by <tt>:GC_INVOKE_TIME</tt>.  For example:
+ *
+ *    [{:GC_TIME=>1.3000000000000858e-05,
+ *      :GC_INVOKE_TIME=>0.010634999999999999,
+ *      :HEAP_USE_SIZE=>289640,
+ *      :HEAP_TOTAL_SIZE=>588960,
+ *      :HEAP_TOTAL_OBJECTS=>14724,
+ *      :GC_IS_MARKED=>false},
+ *      ...
+ *    ]
+ *
+ *  The keys mean:
+ *
+ *  +:GC_TIME+:: Time taken for this run in milliseconds
+ *  +:GC_INVOKE_TIME+:: Time the GC was invoked since startup in seconds
+ *  +:HEAP_USE_SIZE+:: Bytes of heap used
+ *  +:HEAP_TOTAL_SIZE+:: Size of heap in bytes
+ *  +:HEAP_TOTAL_OBJECTS+:: Number of objects
+ *  +:GC_IS_MARKED+:: Is the GC in the mark phase
+ *
+ */
+
 static VALUE
 gc_profile_record_get(void)
 {
@@ -3660,6 +3709,7 @@ Init_GC(void)
     rb_mProfiler = rb_define_module_under(rb_mGC, "Profiler");
     rb_define_singleton_method(rb_mProfiler, "enabled?", gc_profile_enable_get, 0);
     rb_define_singleton_method(rb_mProfiler, "enable", gc_profile_enable, 0);
+    rb_define_singleton_method(rb_mProfiler, "raw_data", gc_profile_record_get, 0);
     rb_define_singleton_method(rb_mProfiler, "disable", gc_profile_disable, 0);
     rb_define_singleton_method(rb_mProfiler, "clear", gc_profile_clear, 0);
     rb_define_singleton_method(rb_mProfiler, "result", gc_profile_result, 0);

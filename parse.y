@@ -3498,7 +3498,7 @@ bv_decls	: bvar
 		    /*%c%*/
 		    /*%c
 		    {
-			rb_ary_push($$, $3);
+			rb_ary_push($1, $3);
 		    }
 		    %*/
 		;
@@ -5290,9 +5290,11 @@ lex_getline(struct parser_params *parser)
     return line;
 }
 
+#ifdef RIPPER
+static rb_data_type_t parser_data_type;
+#else
 static const rb_data_type_t parser_data_type;
 
-#ifndef RIPPER
 static NODE*
 parser_compile_string(volatile VALUE vparser, const char *f, VALUE s, int line)
 {
@@ -10112,6 +10114,17 @@ rb_is_junk_id(ID id)
     return is_junk_id(id);
 }
 
+/**
+ * Returns ID for the given name if it is interned already, or 0.
+ *
+ * \param namep   the pointer to the name object
+ * \return        the ID for *namep
+ * \pre           the object referred by \p namep must be a Symbol or
+ *                a String, or possible to convert with to_str method.
+ * \post          the object referred by \p namep is a Symbol or a
+ *                String if non-zero value is returned, or is a String
+ *                if 0 is returned.
+ */
 ID
 rb_check_id(volatile VALUE *namep)
 {
@@ -10334,7 +10347,11 @@ parser_memsize(const void *ptr)
     return size;
 }
 
-static const rb_data_type_t parser_data_type = {
+static
+#ifndef RIPPER
+const
+#endif
+rb_data_type_t parser_data_type = {
     "parser",
     {
 	parser_mark,
@@ -10950,11 +10967,19 @@ ripper_value(VALUE self, VALUE obj)
 }
 #endif
 
+
+void
+InitVM_ripper(void)
+{
+    parser_data_type.parent = RTYPEDDATA_TYPE(rb_parser_new());
+}
+
 void
 Init_ripper(void)
 {
     VALUE Ripper;
 
+    InitVM(ripper);
     Ripper = rb_define_class("Ripper", rb_cObject);
     rb_define_const(Ripper, "Version", rb_usascii_str_new2(RIPPER_VERSION));
     rb_define_alloc_func(Ripper, ripper_s_allocate);

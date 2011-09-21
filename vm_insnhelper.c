@@ -386,7 +386,7 @@ call_cfunc(VALUE (*func)(), VALUE recv,
 }
 
 static inline VALUE
-vm_call_cfunc(rb_thread_t *th, volatile rb_control_frame_t *reg_cfp,
+vm_call_cfunc(rb_thread_t *th, rb_control_frame_t *reg_cfp,
 	      int num, volatile VALUE recv, const rb_block_t *blockptr,
 	      const rb_method_entry_t *me)
 {
@@ -406,6 +406,10 @@ vm_call_cfunc(rb_thread_t *th, volatile rb_control_frame_t *reg_cfp,
     if (reg_cfp != th->cfp + 1) {
 	rb_bug("cfp consistency error - send");
     }
+#ifdef __llvm__
+#define RB_LLVM_GUARD(v) RB_GC_GUARD(v)
+    RB_LLVM_GUARD(reg_cfp);
+#endif
 
     vm_pop_frame(th);
 
@@ -1235,14 +1239,17 @@ vm_get_cvar_base(NODE *cref)
 {
     VALUE klass;
 
-    while (cref && cref->nd_next &&
+    if (!cref) {
+	rb_bug("vm_get_cvar_base: no cref");
+    }
+
+    while (cref->nd_next &&
 	   (NIL_P(cref->nd_clss) || FL_TEST(cref->nd_clss, FL_SINGLETON) ||
 	    (cref->flags & NODE_FL_CREF_PUSHED_BY_EVAL))) {
 	cref = cref->nd_next;
-
-	if (!cref->nd_next) {
-	    rb_warn("class variable access from toplevel");
-	}
+    }
+    if (!cref->nd_next) {
+	rb_warn("class variable access from toplevel");
     }
 
     klass = cref->nd_clss;
