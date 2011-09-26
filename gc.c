@@ -514,7 +514,7 @@ rb_gc_set_params(void)
 
 static size_t rb_HEAP_SIZE = HEAP_SIZE; /* HACK */
 
-#define HEAP_OBJ_LIMIT (HEAP_SIZE / sizeof(struct RVALUE))
+#define HEAP_OBJ_LIMIT (HEAP_SIZE / (unsigned int)sizeof(struct RVALUE))
 
 extern st_table *rb_class_tbl;
 
