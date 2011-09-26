@@ -30,6 +30,7 @@ void rb_mem_sys_init()
   }
   MEM_SYS(core);
   MEM_SYS(malloc);
+  MEM_SYS(smal);
 #undef MEM_SYS
 }
 

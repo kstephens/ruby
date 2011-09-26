@@ -53,6 +53,7 @@ void rb_mem_sys_register(rb_mem_sys *); /* Register a memory system. */
 extern const char *rb_mem_sys_default;
 
 /* Internal mem system APIs (as defined in gc.c) */
+extern size_t rb_sizeof_RVALUE; /* HACK!!! */
 #if 0
 VALUE rb_newobj(void);
 void rb_gc(void);
