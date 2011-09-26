@@ -1,3 +1,102 @@
+Mon Sep 26 11:27:38 2011  NARUSE, Yui  <naruse@ruby-lang.org>
+
+	* lib/webrick/httputils.rb: Add MIME Type definition of .js and .svg.
+	  patched by Hal Brodigan. [ruby-core:39704] [Bug #5365]
+
+Mon Sep 26 09:20:44 2011  KOSAKI Motohiro  <kosaki.motohiro@gmail.com>
+
+	* configure.in: remove DJGPP support. It's not longer supported
+	  since ruby 1.9.0.
+
+Mon Sep 26 09:07:46 2011  KOSAKI Motohiro  <kosaki.motohiro@gmail.com>
+
+	* include/ruby/defines.h: remove NextStep, OpenStep, Rhapsody
+	  support. Last activity of their OSs are 7 years ago.
+	* configure.in: ditto.
+	* dir.c: ditto.
+	* ext/tk/extconf.rb: ditto.
+
+Mon Sep 26 09:02:49 2011  KOSAKI Motohiro  <kosaki.motohiro@gmail.com>
+
+	* configure.in: remove a code for human68k. it's no longer
+	  supported since r19677.
+
+Sun Sep 25 23:43:32 2011  Martin Bosslet  <Martin.Bosslet@googlemail.com>
+
+	* ext/openssl/ossl_asn1.c: fix int_ossl_asn1_decode0_cons when being
+	  fed arbitrary string values.
+	  Clearly distinguish between the cases "universal, infinite and
+	  not a SEQUENCE or SET" and "universal SEQUENCE or SET, possibly
+	  infinite". Raise error for universal tags that are not infinite.
+	* test/openssl/test_asn1.rb: add a test for this.
+
+	  Thanks to Hiroshi Yoshida for reporting this bug.
+	  [Bug #5363] [ruby-dev:44542]
+
+Sun Sep 25 20:57:18 2011  Ayumu AIZAWA  <ayumu.aizawa@gmail.com>
+
+	* test/syck/test/yamldbm.rb: add test for Syck::DBM.
+	* test/psych/test_yamldbm.rb: add test for Psych::DBM.
+	* test/psych/test_yamlstore.rb: add test for Psych::PStore.
+
+Sun Sep 25 20:54:10 2011  Ayumu AIZAWA  <ayumu.aizawa@gmail.com>
+
+	* lib/yaml/dbm/dbm.rb: fix #update, add #key for using instead #index.
+	  [Bug #5305][ruby-dev:44485]
+
+Sun Sep 25 16:54:33 2011  Nobuyoshi Nakada  <nobu@ruby-lang.org>
+
+	* encoding.c (require_enc): reject only loading from untrusted
+	  load paths.  [ruby-dev:44541] [Bug #5279]
+
+	* transcode.c (load_transcoder_entry): ditto.
+
+Sun Sep 25 16:45:05 2011  Nobuyoshi Nakada  <nobu@ruby-lang.org>
+
+	* configure.in: ignore all warnings from an arbitrary
+	  header in /usr/local/include.
+
+Sun Sep 25 03:43:03 2011  NARUSE, Yui  <naruse@ruby-lang.org>
+
+	* enum.c (slice_before_i): use rb_attr_get to suppress wrong warning
+	  for internal instance variable slicebefore_initial_state.
+
+Fri Sep 23 14:20:14 2011  Martin Bosslet  <Martin.Bosslet@googlemail.com>
+
+	* ext/openssl/ossl_asn1.c: remove unused variable.
+
+Fri Sep 23 13:46:59 2011  Martin Bosslet  <Martin.Bosslet@googlemail.com>
+
+	* test/openssl/test_ssl_session.rb: execute test_session_exts_read
+	  only for OpenSSL versions >= 0.9.8k. Thanks, Eric Wong, for
+	  reporting this.
+	  [Bug #4961] [ruby-core:37726]
+
+Fri Sep 23 11:59:08 2011  Martin Bosslet  <Martin.Bosslet@googlemail.com>
+
+	* test/openssl/test_ssl_session.rb: ensure server calls callbacks in
+	  test_ctx_server_session_cb. Thanks to Eric Wong for the patch.
+	  [Bug #5336] [ruby-core:39619]
+
+Thu Sep 22 02:53:19 2011  Nobuyoshi Nakada  <nobu@ruby-lang.org>
+
+	* vm_insnhelper.c (vm_call_cfunc): suppress a warning.  note that
+	  `volatile type *var' doesn't make var itself volatile.
+
+Thu Sep 22 01:52:48 2011  CHIKANAGA Tomoyuki  <nagachika00@gmail.com>
+
+	* thread_pthread.c (ubf_select): activate timer thread when interrupt
+	  blocking thread.
+	  A patch created by Koichi Sasada. [ruby-core:39634] [Bug #5343]
+	  to cover race condition, timer thread periodically send SIGVTARLM to
+	  threads in signal thread list. so you should activate timer thread
+	  when interrupt a thread.
+
+Wed Sep 21 16:55:26 2011  NAKAMURA Usaku  <usa@ruby-lang.org>
+
+	* test/io/wait/test_io_wait.rb (TestIOWait#setup): of course, the
+	  behavior of mingw is just same with mswin.
+
 Tue Sep 20 18:08:51 2011  Nobuyoshi Nakada  <nobu@ruby-lang.org>
 
 	* vm_insnhelper.c (vm_get_cvar_base): reduce duplicated checks and
@@ -152,7 +251,7 @@ Fri Sep  9 10:22:03 2011  Nobuyoshi Nakada  <nobu@ruby-lang.org>
 Fri Sep  9 02:02:09 2011  Ayumu AIZAWA  <ayumu.aizawa@gmail.com>
 
 	* template/yarvarch.ja:
-	  Change encoding from Shift-JIS to UTF-8
+	  Change encoding from Shift_JIS to UTF-8
 
 Thu Sep  9 01:14:00 2011  Ayumu AIZAWA  <ayumu.aizawa@gmail.com>
 
@@ -227,7 +326,7 @@ Tue Sep  6 21:06:49 2011  Shota Fukumori  <sorah@tubusu.net>
 
 	* test4test_sorting.rb: Ditto.
 
-	* lib/test/unit.rb (run): Put RUBY_DESCIPTION before quitting.
+	* lib/test/unit.rb (run): Put RUBY_DESCRIPTION before quitting.
 	  [Feature #5282]
 
 Tue Sep  6 21:13:47 2011  Masaya Tarui  <tarui@ruby-lang.org>
