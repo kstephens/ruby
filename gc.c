@@ -290,11 +290,11 @@ typedef struct RVALUE {
 #endif
 } RVALUE;
 
-size_t rb_sizeof_RVALUE = sizeof(RVALUE); /* UGLY */
-
 #if defined(_MSC_VER) || defined(__BORLANDC__) || defined(__CYGWIN__)
 #pragma pack(pop)
 #endif
+
+size_t rb_sizeof_RVALUE = sizeof(RVALUE); /* UGLY */
 
 struct heaps_slot {
     void *membase;
