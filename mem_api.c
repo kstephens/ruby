@@ -80,7 +80,6 @@ void Init_mem_sys()
 /********************************************************************
  * Internal interface to rb_mem_sys methods.
  */
-extern size_t rb_sizeof_RVALUE;
 
 VALUE rb_newobj(void)
 {

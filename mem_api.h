@@ -47,6 +47,8 @@ typedef struct rb_mem_sys {
   struct rb_mem_sys *next; /* mem_sys_list */
 } rb_mem_sys;
 
+extern size_t rb_sizeof_RVALUE; /* HACK!!! */
+
 void rb_mem_sys_init(); /* Initialize memory system API. */
 void rb_mem_sys_select(const char *name); /* Select memory system by name, or 0 to use $RUBY_MEM_SYS, else rb_mem_sys_default. */
 void rb_mem_sys_register(rb_mem_sys *); /* Register a memory system. */
