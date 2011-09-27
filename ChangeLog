@@ -1,3 +1,25 @@
+Tue Sep 27 09:55:40 2011  KOSAKI Motohiro  <kosaki.motohiro@gmail.com>
+
+	* thread_pthread.c: make native_fd_select().
+	* thread.c (do_select): remove #ifdef _WIN32. Instead, use
+	  native_fd_select() always.
+
+Tue Sep 27 09:44:59 2011  KOSAKI Motohiro  <kosaki.motohiro@gmail.com>
+
+	* thread.c (do_select): remove cygwin specific hack. It's layer
+	  violation and too large hack.
+	* thread.c (cmp_tv, subtract_tv): removed.
+
+Tue Sep 27 03:50:19 2011  Ayumu AIZAWA  <ayumu.aizawa@gmail.com>
+
+	* test/rexml/test_sax.rb: add require 'rexml/document'.
+
+Tue Sep 27 03:32:27 2011  Ayumu AIZAWA  <ayumu.aizawa@gmail.com>
+
+	* test/psych/test_yamldbm.rb: fix #setup and #terdown.
+	  [Bug #5370] [ruby-core:39730]
+	* test/syck/test_yamldbm.rb: ditto.
+
 Mon Sep 26 11:27:38 2011  NARUSE, Yui  <naruse@ruby-lang.org>
 
 	* lib/webrick/httputils.rb: Add MIME Type definition of .js and .svg.
