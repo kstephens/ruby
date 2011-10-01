@@ -1,3 +1,4 @@
+/* Extracted from gc.c */
 #ifndef RVALUE_H
 #define RVALUE_H
 
