@@ -482,6 +482,8 @@ static void gc_sweep(rb_objspace_t *);
 static void slot_sweep(rb_objspace_t *, struct heaps_slot *);
 static void gc_clear_mark_on_sweep_slots(rb_objspace_t *);
 
+static size_t rb_HEAP_SIZE;
+
 void
 rb_objspace_free(rb_objspace_t *objspace)
 {
@@ -502,6 +504,9 @@ rb_objspace_free(rb_objspace_t *objspace)
 	size_t i;
 	for (i = 0; i < heaps_used; ++i) {
 	    free(objspace->heap.sorted[i].slot->membase);
+	    rb_mem_sys_invoke_callbacks(RB_MEM_SYS_EVENT_PAGE_FREE,
+					RB_MEM_SYS_EVENT_AFTER,
+					(void*) objspace->heap.sorted[i].slot->membase, rb_HEAP_SIZE);
 	    free(objspace->heap.sorted[i].slot);
 	}
 	free(objspace->heap.sorted);
@@ -527,6 +532,8 @@ rb_objspace_free(rb_objspace_t *objspace)
 /*#define HEAP_SIZE 0x1000 */
 /* 2KB */
 /*#define HEAP_SIZE 0x800 */
+
+static size_t rb_HEAP_SIZE = HEAP_SIZE; /* HACK */
 
 #define HEAP_OBJ_LIMIT (HEAP_SIZE / (unsigned int)sizeof(struct RVALUE))
 
@@ -1096,6 +1103,9 @@ assign_heap_slot(rb_objspace_t *objspace)
 	freelist = p;
 	p++;
     }
+    rb_mem_sys_invoke_callbacks(RB_MEM_SYS_EVENT_PAGE_ALLOC,
+				RB_MEM_SYS_EVENT_AFTER,
+				(void*) membase, HEAP_SIZE);
 }
 
 static void
@@ -1646,7 +1656,7 @@ rb_gc_mark_maybe(VALUE obj)
 
 int rb_gc_markedQ_core(VALUE object)
 {
-  return FL_TEST(object, FL_MARK);
+  return FL_TEST(object, FL_MARK) != 0;
 }
 
 static void
@@ -1965,6 +1975,11 @@ add_freelist(rb_objspace_t *objspace, RVALUE *p)
     p->as.free.flags = 0;
     p->as.free.next = freelist;
     freelist = p;
+    if ( RB_MEM_SYS_TRACE_EVENTS ) {
+      rb_mem_sys_invoke_callbacks(RB_MEM_SYS_EVENT_OBJECT_FREE,
+				  RB_MEM_SYS_EVENT_AFTER,
+				  (void*) p, rb_sizeof_RVALUE);
+    }
 }
 
 static void
@@ -2019,6 +2034,9 @@ free_unused_heaps(rb_objspace_t *objspace)
 	    }
 	    else {
 		free(objspace->heap.sorted[i].slot->membase);
+		rb_mem_sys_invoke_callbacks(RB_MEM_SYS_EVENT_PAGE_FREE,
+					    RB_MEM_SYS_EVENT_AFTER,
+					    (void*) objspace->heap.sorted[i].slot->membase, HEAP_SIZE);
 	    }
             free(objspace->heap.sorted[i].slot);
 	    heaps_used--;
@@ -2037,6 +2055,9 @@ free_unused_heaps(rb_objspace_t *objspace)
 	}
 	else {
 	    free(last);
+	    rb_mem_sys_invoke_callbacks(RB_MEM_SYS_EVENT_PAGE_FREE,
+					RB_MEM_SYS_EVENT_AFTER,
+					(void*) last, HEAP_SIZE);
 	}
     }
 }
@@ -3020,6 +3041,11 @@ run_final(rb_objspace_t *objspace, VALUE obj)
     key = (st_data_t)obj;
     if (st_delete(finalizer_table, &key, &table)) {
 	run_finalizer(objspace, obj, (VALUE)table);
+	if ( RB_MEM_SYS_TRACE_EVENTS ) {
+	  rb_mem_sys_invoke_callbacks(RB_MEM_SYS_EVENT_FINALIZER_FREE,
+				      RB_MEM_SYS_EVENT_AFTER,
+				      (void*) obj, 0);
+	}
     }
 }
 

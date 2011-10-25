@@ -47,6 +47,8 @@ typedef struct rb_mem_sys {
   struct rb_mem_sys *next; /* mem_sys_list */
 } rb_mem_sys;
 
+extern size_t rb_sizeof_RVALUE; /* HACK!!! */
+
 void rb_mem_sys_init(); /* Initialize memory system API. */
 void rb_mem_sys_select(const char *name); /* Select memory system by name, or 0 to use $RUBY_MEM_SYS, else rb_mem_sys_default. */
 void rb_mem_sys_register(rb_mem_sys *); /* Register a memory system. */
@@ -66,32 +68,49 @@ void rb_gc_run_finalizer(VALUE obj, VALUE block);
 /* Additional mem system APIs for GC callbacks. */
 extern int rb_gc_markedQ(VALUE object);
 
-enum rb_gc_phase {
-  RB_GC_PHASE_NONE = 0,
-  RB_GC_PHASE_STRESS,
-  RB_GC_PHASE_ALLOC,
-  RB_GC_PHASE_START,
-  RB_GC_PHASE_MARK,
-  RB_GC_PHASE_SWEEP,
-  RB_GC_PHASE_FINALIZE,
-  RB_GC_PHASE_END,
-  RB_GC_PHASE_AT_EXIT,
-  rb_gc_phase__LAST
+/*
+ * Memory System callback API.
+ */
+
+#ifndef RB_MEM_SYS_TRACE_EVENTS
+#define RB_MEM_SYS_TRACE_EVENTS 1
+#endif
+
+/* Event support. */
+enum rb_mem_sys_event {
+  RB_MEM_SYS_EVENT_NONE = 0,
+  RB_MEM_SYS_EVENT_STRESS,
+  RB_MEM_SYS_EVENT_OBJECT_ALLOC,
+  RB_MEM_SYS_EVENT_OBJECT_FREE,
+  RB_MEM_SYS_EVENT_PAGE_ALLOC,
+  RB_MEM_SYS_EVENT_PAGE_FREE,
+  RB_MEM_SYS_EVENT_FINALIZER_ALLOC,
+  RB_MEM_SYS_EVENT_FINALIZER_FREE,
+  RB_MEM_SYS_EVENT_GC_START,
+  RB_MEM_SYS_EVENT_GC_MARK,
+  RB_MEM_SYS_EVENT_GC_SWEEP,
+  RB_MEM_SYS_EVENT_GC_FINALIZE,
+  RB_MEM_SYS_EVENT_GC_END,
+  RB_MEM_SYS_EVENT_AT_EXIT,
+  rb_mem_sys_event__LAST
 };
-enum rb_gc_phase_location {
-  RB_GC_PHASE_BEFORE = 0,
-  RB_GC_PHASE_AFTER,
-  rb_gc_phase_location__LAST
+enum rb_mem_sys_event_location {
+  RB_MEM_SYS_EVENT_BEFORE = 0,
+  RB_MEM_SYS_EVENT_AFTER,
+  rb_mem_sys_event_location__LAST
 };
 
-/*
- * GC callback API.
- */
 /* Returns an opaque callback struct. */
-void *rb_gc_add_callback(enum rb_gc_phase phase, enum rb_gc_phase_location location, void (*func)(void *callback, void *func_data), void *func_data);
-void rb_gc_set_callback_func(void *callback, void *func);
-void rb_gc_remove_callback(void *callback);
-void rb_gc_invoke_callbacks(enum rb_gc_phase phase, enum rb_gc_phase_location location);
+void *rb_mem_sys_add_callback(enum rb_mem_sys_event phase, 
+			      enum rb_mem_sys_event_location location, 
+			      void (*func)(void *callback, void *func_data, void *data, size_t size), 
+			      void *func_data);
+void rb_mem_sys_set_callback_func(void *callback, void *func);
+void rb_mem_sys_remove_callback(void *callback);
+void rb_mem_sys_invoke_callbacks(enum rb_mem_sys_event phase, 
+				 enum rb_mem_sys_event_location location, 
+				 void *addr, 
+				 size_t size);
 
 #if defined __GNUC__ && __GNUC__ >= 4
 #pragma GCC visibility pop
