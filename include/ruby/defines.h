@@ -197,7 +197,7 @@ void xfree(void*);
         /* MB_CUR_MAX will not work well in C locale */
 #endif
 
-#if defined(sparc) || defined(__sparc__)
+#if defined(__sparc)
 static inline void
 flush_register_windows(void)
 {
@@ -205,7 +205,7 @@ flush_register_windows(void)
 #ifdef __GNUC__
 	volatile
 #endif
-# if defined(__sparc_v9__) || defined(__sparcv9) || defined(__arch64__)
+# if SIZEOF_VOIDP > 4		/* workaround for Debian Sparc quirk */
 	("flushw")
 # else
 	("ta 0x03")

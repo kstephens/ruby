@@ -73,7 +73,7 @@ add(VALUE x, VALUE y)
         if (FIXABLE(l)) return LONG2FIX(l);
         return LONG2NUM(l);
     }
-    if (TYPE(x) == T_BIGNUM) return rb_big_plus(x, y);
+    if (RB_TYPE_P(x, T_BIGNUM)) return rb_big_plus(x, y);
     return rb_funcall(x, '+', 1, y);
 }
 
@@ -85,7 +85,7 @@ sub(VALUE x, VALUE y)
         if (FIXABLE(l)) return LONG2FIX(l);
         return LONG2NUM(l);
     }
-    if (TYPE(x) == T_BIGNUM) return rb_big_minus(x, y);
+    if (RB_TYPE_P(x, T_BIGNUM)) return rb_big_minus(x, y);
     return rb_funcall(x, '-', 1, y);
 }
 
@@ -148,7 +148,7 @@ mul(VALUE x, VALUE y)
 	    return LONG2NUM(z);
 #endif
     }
-    if (TYPE(x) == T_BIGNUM)
+    if (RB_TYPE_P(x, T_BIGNUM))
         return rb_big_mul(x, y);
     return rb_funcall(x, '*', 1, y);
 }
@@ -182,7 +182,7 @@ quo(VALUE x, VALUE y)
         }
     }
     ret = rb_funcall(x, id_quo, 1, y);
-    if (TYPE(ret) == T_RATIONAL &&
+    if (RB_TYPE_P(ret, T_RATIONAL) &&
         RRATIONAL(ret)->den == INT2FIX(1)) {
         ret = RRATIONAL(ret)->num;
     }
@@ -391,7 +391,7 @@ v2w(VALUE v)
     if (FIXNUM_P(v)) {
         return WIDEVAL_WRAP((WIDEVALUE)(SIGNED_WIDEVALUE)(long)v);
     }
-    else if (TYPE(v) == T_BIGNUM &&
+    else if (RB_TYPE_P(v, T_BIGNUM) &&
         RBIGNUM_LEN(v) * sizeof(BDIGIT) <= sizeof(WIDEVALUE)) {
         return v2w_bignum(v);
     }
@@ -451,7 +451,7 @@ wadd(wideval_t wx, wideval_t wy)
     else
 #endif
     x = w2v(wx);
-    if (TYPE(x) == T_BIGNUM) return v2w(rb_big_plus(x, w2v(wy)));
+    if (RB_TYPE_P(x, T_BIGNUM)) return v2w(rb_big_plus(x, w2v(wy)));
     return v2w(rb_funcall(x, '+', 1, w2v(wy)));
 }
 
@@ -467,7 +467,7 @@ wsub(wideval_t wx, wideval_t wy)
     else
 #endif
     x = w2v(wx);
-    if (TYPE(x) == T_BIGNUM) return v2w(rb_big_minus(x, w2v(wy)));
+    if (RB_TYPE_P(x, T_BIGNUM)) return v2w(rb_big_minus(x, w2v(wy)));
     return v2w(rb_funcall(x, '-', 1, w2v(wy)));
 }
 
@@ -525,9 +525,9 @@ wmul(wideval_t wx, wideval_t wy)
     }
 #endif
     x = w2v(wx);
-    if (TYPE(x) == T_BIGNUM) return v2w(rb_big_mul(x, w2v(wy)));
+    if (RB_TYPE_P(x, T_BIGNUM)) return v2w(rb_big_mul(x, w2v(wy)));
     z = rb_funcall(x, '*', 1, w2v(wy));
-    if (TYPE(z) == T_RATIONAL && RRATIONAL(z)->den == INT2FIX(1)) {
+    if (RB_TYPE_P(z, T_RATIONAL) && RRATIONAL(z)->den == INT2FIX(1)) {
         z = RRATIONAL(z)->num;
     }
     return v2w(z);
@@ -552,7 +552,7 @@ wquo(wideval_t wx, wideval_t wy)
     x = w2v(wx);
     y = w2v(wy);
     ret = rb_funcall(x, id_quo, 1, y);
-    if (TYPE(ret) == T_RATIONAL &&
+    if (RB_TYPE_P(ret, T_RATIONAL) &&
         RRATIONAL(ret)->den == INT2FIX(1)) {
         ret = RRATIONAL(ret)->num;
     }
@@ -2536,7 +2536,7 @@ static const char months[][4] = {
 static int
 obj2int(VALUE obj)
 {
-    if (TYPE(obj) == T_STRING) {
+    if (RB_TYPE_P(obj, T_STRING)) {
 	obj = rb_str_to_inum(obj, 10, FALSE);
     }
 
@@ -2546,7 +2546,7 @@ obj2int(VALUE obj)
 static VALUE
 obj2vint(VALUE obj)
 {
-    if (TYPE(obj) == T_STRING) {
+    if (RB_TYPE_P(obj, T_STRING)) {
 	obj = rb_str_to_inum(obj, 10, FALSE);
     }
     else {
@@ -2561,7 +2561,7 @@ obj2subsecx(VALUE obj, VALUE *subsecx)
 {
     VALUE subsec;
 
-    if (TYPE(obj) == T_STRING) {
+    if (RB_TYPE_P(obj, T_STRING)) {
 	obj = rb_str_to_inum(obj, 10, FALSE);
         *subsecx = INT2FIX(0);
         return NUM2INT(obj);
@@ -2575,7 +2575,7 @@ obj2subsecx(VALUE obj, VALUE *subsecx)
 static long
 usec2subsecx(VALUE obj)
 {
-    if (TYPE(obj) == T_STRING) {
+    if (RB_TYPE_P(obj, T_STRING)) {
 	obj = rb_str_to_inum(obj, 10, FALSE);
     }
 
@@ -3216,7 +3216,7 @@ time_to_r(VALUE time)
 
     GetTimeval(time, tobj);
     v = w2v(rb_time_unmagnify(tobj->timew));
-    if (TYPE(v) != T_RATIONAL) {
+    if (!RB_TYPE_P(v, T_RATIONAL)) {
         v = rb_Rational1(v);
     }
     return v;
@@ -4642,7 +4642,7 @@ time_mdump(VALUE time)
     str = rb_str_new(buf, 8);
     rb_copy_generic_ivar(str, time);
     if (!rb_equal(nano, INT2FIX(0))) {
-        if (TYPE(nano) == T_RATIONAL) {
+        if (RB_TYPE_P(nano, T_RATIONAL)) {
             rb_ivar_set(str, id_nano_num, RRATIONAL(nano)->num);
             rb_ivar_set(str, id_nano_den, RRATIONAL(nano)->den);
         }
@@ -4835,20 +4835,83 @@ time_load(VALUE klass, VALUE str)
 }
 
 /*
- *  <code>Time</code> is an abstraction of dates and times. Time is
- *  stored internally as the number of seconds with fraction since
- *  the <em>Epoch</em>, January 1, 1970 00:00 UTC.
- *  Also see the library modules <code>Date</code>.
- *  The <code>Time</code> class treats GMT (Greenwich Mean Time) and
- *  UTC (Coordinated Universal Time)<em>[Yes, UTC really does stand for
- *  Coordinated Universal Time. There was a committee involved.]</em>
- *  as equivalent.  GMT is the older way of referring to these
- *  baseline times but persists in the names of calls on POSIX
- *  systems.
+ *  Time is an abstraction of dates and times. Time is stored internally as
+ *  the number of seconds with fraction since the _Epoch_, January 1, 1970
+ *  00:00 UTC. Also see the library modules Date. The Time class treats GMT
+ *  (Greenwich Mean Time) and UTC (Coordinated Universal Time) as equivalent.
+ *  GMT is the older way of referring to these baseline times but persists in
+ *  the names of calls on POSIX systems.
  *
- *  All times may have fraction. Be aware of
- *  this fact when comparing times with each other---times that are
- *  apparently equal when displayed may be different when compared.
+ *  All times may have fraction. Be aware of this fact when comparing times
+ *  with each other -- times that are apparently equal when displayed may be
+ *  different when compared.
+ *
+ *  = Examples
+ *
+ *  All of these examples were done using the EST timezone which is GMT-5.
+ *
+ *  == Creating a new Time instance
+ *
+ *  You can create a new instance of time with Time.new. This will use the
+ *  current system time. Time.now is a synonym for this. You can also
+ *  pass parts of the time to Time.new such as year, month, minute, etc. When
+ *  you want to construct a time this way you must pass at least a year. If you
+ *  pass the year with nothing else time with default to January 1 of that year
+ *  at 00:00:00 with the current system timezone. Here are some examples:
+ *
+ *    Time.new(2002)         #=> 2002-01-01 00:00:00 -0500
+ *    Time.new(2002, 10)     #=> 2002-10-01 00:00:00 -0500
+ *    Time.new(2002, 10, 31) #=> 2002-10-31 00:00:00 -0500
+ *    Time.new(2002, 10, 31, 2, 2, 2, "+02:00") #=> 2002-10-31 02:02:02 -0200
+ *
+ *  You can also use #gm, #local and #utc to infer GMT, local and UTC
+ *  timezones instead of using the current system setting.
+ *
+ *  You can also create a new time using Time.at which takes the number of
+ *  seconds (or fraction of seconds) since the {Unix
+ *  Epoch}[http://en.wikipedia.org/wiki/Unix_time].
+ *
+ *    Time.at(628232400) #=> 1989-11-28 00:00:00 -0500
+ *
+ *  == Working with an instance of Time
+ *
+ *  Once you have an instance of time there is a multitude of things you can do
+ *  with it. Below are some examples. For all of the following examples, we
+ *  will work on the assumption that you have done the following:
+ *
+ *    t = Time.new(1993, 02, 24, 12, 0, 0, "+09:00")
+ *
+ *  Was that a monday?
+ *  
+ *    t.monday? #=> false
+ *
+ *  What year was that again?
+ *
+ *    t.year #=> 1993
+ *
+ *  Was is daylight savings at the time?
+ *
+ *    t.dst? #=> false
+ *
+ *  What's the day a year later?
+ *
+ *    t + (60*60*24*365) #=> 1994-02-24 12:00:00 +0900
+ *
+ *  How many second was that from the Unix Epoc?
+ *
+ *    t.to_i #=> 730522800
+ *
+ *  You can also do standard functions like compare two times.
+ *
+ *    t1 = Time.new(2010)
+ *    t2 = Time.new(2011)
+ *    
+ *    t1 == t2 #=> false
+ *    t1 == t1 #=> true
+ *    t1 <  t2 #=> true
+ *    t1 >  t2 #=> false
+ *
+ *    Time.new(2010,10,31).between?(t1, t2) #=> true
  */
 
 void

@@ -1137,7 +1137,7 @@ uscore_get(void)
     VALUE line;
 
     line = rb_lastline_get();
-    if (TYPE(line) != T_STRING) {
+    if (!RB_TYPE_P(line, T_STRING)) {
 	rb_raise(rb_eTypeError, "$_ value need to be String (%s given)",
 		 NIL_P(line) ? "nil" : rb_obj_classname(line));
     }
@@ -1527,7 +1527,7 @@ load_file_internal(VALUE arg)
 	if ((fd = open(fname, mode)) < 0) {
 	    rb_load_fail(fname);
 	}
-        rb_update_max_fd(fd);
+        rb_fd_set_cloexec(fd);
 
 	f = rb_io_fdopen(fd, mode, fname);
     }

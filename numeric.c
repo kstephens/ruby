@@ -66,16 +66,16 @@
 
 #ifdef HAVE_INFINITY
 #elif !defined(WORDS_BIGENDIAN) /* BYTE_ORDER == LITTLE_ENDIAN */
-const unsigned char rb_infinity[] = "\x00\x00\x80\x7f";
+const union bytesequence4_or_float rb_infinity = {{0x00, 0x00, 0x80, 0x7f}};
 #else
-const unsigned char rb_infinity[] = "\x7f\x80\x00\x00";
+const union bytesequence4_or_float rb_infinity = {{0x7f, 0x80, 0x00, 0x00}};
 #endif
 
 #ifdef HAVE_NAN
 #elif !defined(WORDS_BIGENDIAN) /* BYTE_ORDER == LITTLE_ENDIAN */
-const unsigned char rb_nan[] = "\x00\x00\xc0\x7f";
+const union bytesequence4_or_float rb_nan = {{0x00, 0x00, 0xc0, 0x7f}};
 #else
-const unsigned char rb_nan[] = "\x7f\xc0\x00\x00";
+const union bytesequence4_or_float rb_nan = {{0x7f, 0xc0, 0x00, 0x00}};
 #endif
 
 #ifndef HAVE_ROUND
@@ -204,7 +204,7 @@ do_coerce(VALUE *x, VALUE *y, int err)
     a[0] = *x; a[1] = *y;
 
     ary = rb_rescue(coerce_body, (VALUE)a, err?coerce_rescue:0, (VALUE)a);
-    if (TYPE(ary) != T_ARRAY || RARRAY_LEN(ary) != 2) {
+    if (!RB_TYPE_P(ary, T_ARRAY) || RARRAY_LEN(ary) != 2) {
 	if (err) {
 	    rb_raise(rb_eTypeError, "coerce must return [x, y]");
 	}
@@ -1272,7 +1272,7 @@ flo_le(VALUE x, VALUE y)
 static VALUE
 flo_eql(VALUE x, VALUE y)
 {
-    if (TYPE(y) == T_FLOAT) {
+    if (RB_TYPE_P(y, T_FLOAT)) {
 	double a = RFLOAT_VALUE(x);
 	double b = RFLOAT_VALUE(y);
 #if defined(_MSC_VER) && _MSC_VER < 1300
@@ -1480,7 +1480,7 @@ int_round_0(VALUE num, int ndigits)
 	if (neg) x = -x;
 	return LONG2NUM(x);
     }
-    if (TYPE(f) == T_FLOAT) {
+    if (RB_TYPE_P(f, T_FLOAT)) {
 	/* then int_pow overflow */
 	return INT2FIX(0);
     }
@@ -1676,7 +1676,7 @@ num_truncate(VALUE num)
 int
 ruby_float_step(VALUE from, VALUE to, VALUE step, int excl)
 {
-    if (TYPE(from) == T_FLOAT || TYPE(to) == T_FLOAT || TYPE(step) == T_FLOAT) {
+    if (RB_TYPE_P(from, T_FLOAT) || RB_TYPE_P(to, T_FLOAT) || RB_TYPE_P(step, T_FLOAT)) {
 	const double epsilon = DBL_EPSILON;
 	double beg = NUM2DBL(from);
 	double end = NUM2DBL(to);
@@ -2960,7 +2960,7 @@ fix_rev(VALUE num)
 static VALUE
 bit_coerce(VALUE x)
 {
-    while (!FIXNUM_P(x) && TYPE(x) != T_BIGNUM) {
+    while (!FIXNUM_P(x) && !RB_TYPE_P(x, T_BIGNUM)) {
 	rb_raise(rb_eTypeError,
 		 "can't convert %s into Integer for bitwise arithmetic",
 		 rb_obj_classname(x));

@@ -35,7 +35,7 @@
 # define NO_SAFE_RENAME
 #endif
 
-#if defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__) || defined(__DragonFly__) || defined(sun) || defined(_nec_ews)
+#if defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__) || defined(__DragonFly__) || defined(__sun) || defined(_nec_ews)
 # define USE_SETVBUF
 #endif
 
@@ -154,6 +154,28 @@ rb_update_max_fd(int fd)
     if (fstat(fd, &buf) != 0) {
         rb_bug("rb_update_max_fd: invalid fd (%d) given.", fd);
     }
+    if (max_file_descriptor < fd) max_file_descriptor = fd;
+}
+
+void rb_fd_set_cloexec(int fd)
+{
+  /* MinGW don't have F_GETFD and FD_CLOEXEC.  [ruby-core:40281] */
+#ifdef F_GETFD
+    int flags, ret;
+    flags = fcntl(fd, F_GETFD); /* should not fail except EBADF. */
+    if (flags == -1) {
+        rb_bug("rb_fd_set_cloexec: fcntl(%d, F_GETFD) failed: %s", fd, strerror(errno));
+    }
+    if (2 < fd) {
+        if (!(flags & FD_CLOEXEC)) {
+            flags |= FD_CLOEXEC;
+            ret = fcntl(fd, F_SETFD, flags);
+            if (ret == -1) {
+                rb_bug("rb_fd_set_cloexec: fcntl(%d, F_SETFD, %d) failed: %s", fd, flags, strerror(errno));
+            }
+        }
+    }
+#endif
     if (max_file_descriptor < fd) max_file_descriptor = fd;
 }
 
@@ -527,7 +549,7 @@ ruby_dup(int orig)
 	    rb_sys_fail(0);
 	}
     }
-    rb_update_max_fd(fd);
+    rb_fd_set_cloexec(fd);
     return fd;
 }
 
@@ -1053,7 +1075,7 @@ rb_io_flush(VALUE io)
 {
     rb_io_t *fptr;
 
-    if (TYPE(io) != T_FILE) {
+    if (!RB_TYPE_P(io, T_FILE)) {
         return rb_funcall(io, id_flush, 0);
     }
 
@@ -2117,7 +2139,7 @@ rb_io_write_nonblock(VALUE io, VALUE str)
     long n;
 
     rb_secure(4);
-    if (TYPE(str) != T_STRING)
+    if (!RB_TYPE_P(str, T_STRING))
 	str = rb_obj_as_string(str);
 
     io = GetWriteIO(io);
@@ -3144,7 +3166,7 @@ rb_io_getbyte(VALUE io)
     GetOpenFile(io, fptr);
     rb_io_check_byte_readable(fptr);
     READ_CHECK(fptr);
-    if (fptr->fd == 0 && (fptr->mode & FMODE_TTY) && TYPE(rb_stdout) == T_FILE) {
+    if (fptr->fd == 0 && (fptr->mode & FMODE_TTY) && RB_TYPE_P(rb_stdout, T_FILE)) {
         rb_io_t *ofp;
         GetOpenFile(rb_stdout, ofp);
         if (ofp->mode & FMODE_TTY) {
@@ -3243,7 +3265,7 @@ rb_io_ungetc(VALUE io, VALUE c)
     if (FIXNUM_P(c)) {
 	c = rb_enc_uint_chr(FIX2UINT(c), io_read_encoding(fptr));
     }
-    else if (TYPE(c) == T_BIGNUM) {
+    else if (RB_TYPE_P(c, T_BIGNUM)) {
 	c = rb_enc_uint_chr(NUM2UINT(c), io_read_encoding(fptr));
     }
     else {
@@ -3886,7 +3908,7 @@ rb_io_syswrite(VALUE io, VALUE str)
     long n;
 
     rb_secure(4);
-    if (TYPE(str) != T_STRING)
+    if (!RB_TYPE_P(str, T_STRING))
 	str = rb_obj_as_string(str);
 
     io = GetWriteIO(io);
@@ -4591,7 +4613,7 @@ rb_sysopen_internal(struct sysopen_struct *data)
     int fd;
     fd = (int)rb_thread_blocking_region(sysopen_func, data, RUBY_UBF_IO, 0);
     if (0 <= fd)
-        rb_update_max_fd(fd);
+        rb_fd_set_cloexec(fd);
     return fd;
 }
 
@@ -4627,18 +4649,18 @@ rb_fdopen(int fd, const char *modestr)
 {
     FILE *file;
 
-#if defined(sun)
+#if defined(__sun)
     errno = 0;
 #endif
     file = fdopen(fd, modestr);
     if (!file) {
 	if (
-#if defined(sun)
+#if defined(__sun)
 	    errno == 0 ||
 #endif
 	    errno == EMFILE || errno == ENFILE) {
 	    rb_gc();
-#if defined(sun)
+#if defined(__sun)
 	    errno = 0;
 #endif
 	    file = fdopen(fd, modestr);
@@ -4646,7 +4668,7 @@ rb_fdopen(int fd, const char *modestr)
 	if (!file) {
 #ifdef _WIN32
 	    if (errno == 0) errno = EINVAL;
-#elif defined(sun)
+#elif defined(__sun)
 	    if (errno == 0) errno = EMFILE;
 #endif
 	    rb_sys_fail(0);
@@ -4919,8 +4941,8 @@ rb_pipe(int *pipes)
     }
 #endif
     if (ret == 0) {
-        rb_update_max_fd(pipes[0]);
-        rb_update_max_fd(pipes[1]);
+        rb_fd_set_cloexec(pipes[0]);
+        rb_fd_set_cloexec(pipes[1]);
     }
     return ret;
 }
@@ -5802,7 +5824,7 @@ io_reopen(VALUE io, VALUE nfile)
 	    /* need to keep FILE objects of stdin, stdout and stderr */
 	    if (dup2(fd2, fd) < 0)
 		rb_sys_fail_path(orig->pathv);
-            rb_update_max_fd(fd);
+            rb_fd_set_cloexec(fd);
 	}
 	else {
             fclose(fptr->stdio_file);
@@ -5810,7 +5832,7 @@ io_reopen(VALUE io, VALUE nfile)
             fptr->fd = -1;
             if (dup2(fd2, fd) < 0)
                 rb_sys_fail_path(orig->pathv);
-            rb_update_max_fd(fd);
+            rb_fd_set_cloexec(fd);
             fptr->fd = fd;
 	}
 	rb_thread_fd_close(fd);
@@ -6113,7 +6135,7 @@ static VALUE
 rb_io_putc(VALUE io, VALUE ch)
 {
     VALUE str;
-    if (TYPE(ch) == T_STRING) {
+    if (RB_TYPE_P(ch, T_STRING)) {
 	str = rb_str_substr(ch, 0, 1);
     }
     else {
@@ -6254,7 +6276,7 @@ void
 rb_p(VALUE obj) /* for debug print within C code */
 {
     VALUE str = rb_obj_as_string(rb_inspect(obj));
-    if (TYPE(rb_stdout) == T_FILE &&
+    if (RB_TYPE_P(rb_stdout, T_FILE) &&
         rb_method_basic_definition_p(CLASS_OF(rb_stdout), id_write)) {
         io_write(rb_stdout, str, 1);
         io_write(rb_stdout, rb_default_rs, 0);
@@ -6298,7 +6320,7 @@ rb_f_p(int argc, VALUE *argv, VALUE self)
     else if (argc > 1) {
 	ret = rb_ary_new4(argc, argv);
     }
-    if (TYPE(rb_stdout) == T_FILE) {
+    if (RB_TYPE_P(rb_stdout, T_FILE)) {
 	rb_io_flush(rb_stdout);
     }
     return ret;
@@ -6767,7 +6789,7 @@ argf_initialize_copy(VALUE argf, VALUE orig)
 
 /*
  *  call-seq:
- *     ARGF.lineno = number  -> nil
+ *     ARGF.lineno = integer  -> integer
  *
  *  Sets the line number of +ARGF+ as a whole to the given +Integer+.
  *
@@ -6780,7 +6802,7 @@ argf_initialize_copy(VALUE argf, VALUE orig)
  *      ARGF.lineno      #=> 0
  *      ARGF.readline    #=> "This is line 1\n"
  *      ARGF.lineno      #=> 1
- *      ARGF.lineno = 0  #=> nil
+ *      ARGF.lineno = 0  #=> 0
  *      ARGF.lineno      #=> 0
  */
 static VALUE
@@ -6845,7 +6867,7 @@ argf_next_argv(VALUE argf)
     int stdout_binmode = 0;
     int fmode;
 
-    if (TYPE(rb_stdout) == T_FILE) {
+    if (RB_TYPE_P(rb_stdout, T_FILE)) {
         GetOpenFile(rb_stdout, fptr);
         if (fptr->mode & FMODE_BINMODE)
             stdout_binmode = 1;
@@ -6885,7 +6907,7 @@ argf_next_argv(VALUE argf)
 		    VALUE str;
 		    int fw;
 
-		    if (TYPE(rb_stdout) == T_FILE && rb_stdout != orig_stdout) {
+		    if (RB_TYPE_P(rb_stdout, T_FILE) && rb_stdout != orig_stdout) {
 			rb_io_close(rb_stdout);
 		    }
 		    fstat(fr, &st);
@@ -7710,7 +7732,7 @@ io_cntl(int fd, int cmd, long narg, int io_p)
     retval = (int)rb_thread_io_blocking_region(nogvl_io_cntl, &arg, fd);
 #if defined(F_DUPFD)
     if (!io_p && retval != -1 && cmd == F_DUPFD) {
-	rb_update_max_fd(retval);
+	rb_fd_set_cloexec(retval);
     }
 #endif
 
@@ -7770,7 +7792,7 @@ rb_io_ctl(VALUE io, VALUE req, VALUE arg, int io_p)
     GetOpenFile(io, fptr);
     retval = io_cntl(fptr->fd, cmd, narg, io_p);
     if (retval < 0) rb_sys_fail_path(fptr->pathv);
-    if (TYPE(arg) == T_STRING && RSTRING_PTR(arg)[len] != 17) {
+    if (RB_TYPE_P(arg, T_STRING) && RSTRING_PTR(arg)[len] != 17) {
 	rb_raise(rb_eArgError, "return value overflowed string");
     }
 
@@ -8976,7 +8998,10 @@ copy_stream_fallback_body(VALUE arg)
             l = buflen < rest ? buflen : (long)rest;
         }
         if (stp->src_fd == -1) {
-            rb_funcall(stp->src, read_method, 2, INT2FIX(l), buf);
+            VALUE rc = rb_funcall(stp->src, read_method, 2, INT2FIX(l), buf);
+
+            if (read_method == id_read && NIL_P(rc))
+                break;
         }
         else {
             ssize_t ss;
@@ -9269,7 +9294,7 @@ rb_io_set_encoding(int argc, VALUE *argv, VALUE io)
     rb_io_t *fptr;
     VALUE v1, v2, opt;
 
-    if (TYPE(io) != T_FILE) {
+    if (!RB_TYPE_P(io, T_FILE)) {
         return rb_funcall2(io, id_set_encoding, argc, argv);
     }
 
