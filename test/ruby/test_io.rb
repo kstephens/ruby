@@ -826,6 +826,28 @@ class TestIO < Test::Unit::TestCase
     }
   end
 
+  class Bug5237
+    attr_reader :count
+    def initialize
+      @count = 0
+    end
+
+    def read(bytes, buffer)
+      @count += 1
+      buffer.replace "this is a test"
+      nil
+    end
+  end
+
+  def test_copy_stream_broken_src_read_eof
+    src = Bug5237.new
+    dst = StringIO.new
+    assert_equal 0, src.count
+    th = Thread.new { IO.copy_stream(src, dst) }
+    flunk("timeout") unless th.join(10)
+    assert_equal 1, src.count
+  end
+
   def test_copy_stream_dst_rbuf
     mkcdtmpdir {
       pipe(proc do |w|
@@ -1261,6 +1283,8 @@ class TestIO < Test::Unit::TestCase
   def test_close_on_exec
     skip "IO\#close_on_exec is not implemented." unless have_close_on_exec?
     ruby do |f|
+      assert_equal(true, f.close_on_exec?)
+      f.close_on_exec = false
       assert_equal(false, f.close_on_exec?)
       f.close_on_exec = true
       assert_equal(true, f.close_on_exec?)
@@ -1269,12 +1293,16 @@ class TestIO < Test::Unit::TestCase
     end
 
     with_pipe do |r, w|
+      assert_equal(true, r.close_on_exec?)
+      r.close_on_exec = false
       assert_equal(false, r.close_on_exec?)
       r.close_on_exec = true
       assert_equal(true, r.close_on_exec?)
       r.close_on_exec = false
       assert_equal(false, r.close_on_exec?)
 
+      assert_equal(true, w.close_on_exec?)
+      w.close_on_exec = false
       assert_equal(false, w.close_on_exec?)
       w.close_on_exec = true
       assert_equal(true, w.close_on_exec?)

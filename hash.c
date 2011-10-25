@@ -44,7 +44,7 @@ rb_any_cmp(VALUE a, VALUE b)
     if (FIXNUM_P(a) && FIXNUM_P(b)) {
 	return a != b;
     }
-    if (TYPE(a) == T_STRING && RBASIC(a)->klass == rb_cString &&
+    if (RB_TYPE_P(a, T_STRING) && RBASIC(a)->klass == rb_cString &&
 	TYPE(b) == T_STRING && RBASIC(b)->klass == rb_cString) {
 	return rb_str_hash_cmp(a, b);
     }
@@ -106,10 +106,8 @@ static const struct st_hash_type objhash = {
     rb_any_hash,
 };
 
-static const struct st_hash_type identhash = {
-    st_numcmp,
-    st_numhash,
-};
+extern const struct st_hash_type st_hashtype_num;
+#define identhash st_hashtype_num
 
 typedef int st_foreach_func(st_data_t, st_data_t, st_data_t);
 
@@ -1599,7 +1597,7 @@ hash_equal(VALUE hash1, VALUE hash2, int eql)
     struct equal_data data;
 
     if (hash1 == hash2) return Qtrue;
-    if (TYPE(hash2) != T_HASH) {
+    if (!RB_TYPE_P(hash2, T_HASH)) {
 	if (!rb_respond_to(hash2, rb_intern("to_hash"))) {
 	    return Qfalse;
 	}
@@ -2198,7 +2196,7 @@ rb_env_path_tainted(void)
 }
 
 #if defined(_WIN32) || (defined(HAVE_SETENV) && defined(HAVE_UNSETENV))
-#elif defined __sun__
+#elif defined __sun
 static int
 in_origenv(const char *str)
 {
@@ -2286,7 +2284,7 @@ ruby_setenv(const char *name, const char *value)
 	    rb_sys_fail("unsetenv");
 #endif
     }
-#elif defined __sun__
+#elif defined __sun
     size_t len;
     char **env_ptr, *str;
     if (strchr(name, '=')) {
@@ -3150,14 +3148,70 @@ env_update(VALUE env, VALUE hash)
 }
 
 /*
- *  A <code>Hash</code> is a collection of key-value pairs. It is
- *  similar to an <code>Array</code>, except that indexing is done via
- *  arbitrary keys of any object type, not an integer index. Hashes enumerate
- *  their values in the order that the corresponding keys were inserted.
+ *  A Hash is a dictionary-like collection of unique keys and their values.
+ *  Also called associative arrays, they are similar to Arrays, but where an
+ *  Array uses integers as its index, a Hash allows you to use any object
+ *  type. 
+ *
+ *  Hashes enumerate their values in the order that the corresponding keys
+ *  were inserted. 
+ *
+ *  A Hash can be easily created by using its implicit form:
+ *
+ *    grades = { "Jane Doe" => 10, "Jim Doe" => 6 }
+ *  
+ *  Hashes allow an alternate syntax form when your keys are always symbols.
+ *  Instead of 
+ *
+ *    options = { :font_size => 10, :font_family => "Arial" }
+ * 
+ *  You could write it as: 
+ *
+ *    options = { font_size: 10, font_family: "Arial" }
+ * 
+ *  Each named key is a symbol you can access in hash:
+ *
+ *    options[:font_size]  # => 10
+ *
+ *  A Hash can also be created through its ::new method:
+ *
+ *    grades = Hash.new
+ *    grades["Dorothy Doe"] = 9
  *
  *  Hashes have a <em>default value</em> that is returned when accessing
- *  keys that do not exist in the hash. By default, that value is
- *  <code>nil</code>.
+ *  keys that do not exist in the hash. If no default is set +nil+ is used.
+ *  You can set the default value by sending it as an argument to Hash.new: 
+ *
+ *    grades = Hash.new(0)
+ *
+ *  Or by using the #default= method:
+ *
+ *    grades = {"Timmy Doe" => 8}
+ *    grades.default = 0
+ *     
+ *  Accessing a value in a Hash requires using its key:
+ *
+ *    puts grades["Jane Doe"] # => 10
+ *   
+ *  === Common Uses
+ *
+ *  Hashes are an easy way to represent data structures, such as
+ *
+ *    books         = {}
+ *    books[:matz]  = "The Ruby Language"
+ *    books[:black] = "The Well-Grounded Rubyist"
+ * 
+ *  Hashes are also commonly used as a way to have named parameters in
+ *  functions. Note that no brackets are used below. If a hash is the last
+ *  argument on a method call, no braces are needed, thus creating a really
+ *  clean interface: 
+ *  
+ *    Person.create(name: "John Doe", age: 27)
+ *
+ *    def self.create(params)
+ *      @name = params[:name]
+ *      @age  = params[:age]
+ *    end
  *
  */
 

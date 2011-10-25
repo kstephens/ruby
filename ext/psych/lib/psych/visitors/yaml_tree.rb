@@ -12,13 +12,13 @@ module Psych
       alias :finished? :finished
       alias :started? :started
 
-      def initialize options = {}, emitter = Psych::TreeBuilder.new
+      def initialize options = {}, emitter = TreeBuilder.new, ss = ScalarScanner.new
         super()
         @started  = false
         @finished = false
         @emitter  = emitter
         @st       = {}
-        @ss       = ScalarScanner.new
+        @ss       = ss
         @options  = options
 
         @dispatch_cache = Hash.new do |h,klass|
@@ -311,11 +311,27 @@ module Psych
       end
 
       private
-      def format_time time
-        if time.utc?
-          time.strftime("%Y-%m-%d %H:%M:%S.%9N Z")
-        else
-          time.strftime("%Y-%m-%d %H:%M:%S.%9N %:z")
+      # '%:z' was no defined until 1.9.3
+      if RUBY_VERSION < '1.9.3'
+        def format_time time
+          formatted = time.strftime("%Y-%m-%d %H:%M:%S.%9N")
+
+          if time.utc?
+            formatted += " Z"
+          else
+            zone = time.strftime('%z')
+            formatted += " #{zone[0,3]}:#{zone[3,5]}"
+          end
+
+          formatted
+        end
+      else
+        def format_time time
+          if time.utc?
+            time.strftime("%Y-%m-%d %H:%M:%S.%9N Z")
+          else
+            time.strftime("%Y-%m-%d %H:%M:%S.%9N %:z")
+          end
         end
       end
 

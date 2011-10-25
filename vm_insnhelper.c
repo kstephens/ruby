@@ -406,10 +406,6 @@ vm_call_cfunc(rb_thread_t *th, rb_control_frame_t *reg_cfp,
     if (reg_cfp != th->cfp + 1) {
 	rb_bug("cfp consistency error - send");
     }
-#ifdef __llvm__
-#define RB_LLVM_GUARD(v) (*RB_GC_GUARD_PTR((volatile VALUE *)&(v)))
-    RB_LLVM_GUARD(reg_cfp);
-#endif
 
     vm_pop_frame(th);
 
@@ -588,7 +584,17 @@ vm_call_method(rb_thread_t *th, rb_control_frame_t *cfp,
 		    }
 
 		    sym = TOPN(i);
-		    id = SYMBOL_P(sym) ? SYM2ID(sym) : rb_to_id(sym);
+		    if (SYMBOL_P(sym)) {
+			id = SYM2ID(sym);
+		    }
+		    else if (!(id = rb_check_id(&sym))) {
+			if (rb_method_basic_definition_p(CLASS_OF(recv), idMethodMissing)) {
+			    VALUE exc = make_no_method_exception(rb_eNoMethodError, NULL, recv,
+								 rb_long2int(num), &TOPN(i));
+			    rb_exc_raise(exc);
+			}
+			id = rb_to_id(sym);
+		    }
 		    /* shift arguments */
 		    if (i > 0) {
 			MEMMOVE(&TOPN(i), &TOPN(i-1), VALUE, i);
@@ -1282,7 +1288,7 @@ static VALUE
 vm_getivar(VALUE obj, ID id, IC ic)
 {
 #if USE_IC_FOR_IVAR
-    if (TYPE(obj) ==  T_OBJECT) {
+    if (RB_TYPE_P(obj, T_OBJECT)) {
 	VALUE val = Qundef;
 	VALUE klass = RBASIC(obj)->klass;
 
@@ -1337,7 +1343,7 @@ vm_setivar(VALUE obj, ID id, VALUE val, IC ic)
 
     rb_check_frozen(obj);
 
-    if (TYPE(obj) == T_OBJECT) {
+    if (RB_TYPE_P(obj, T_OBJECT)) {
 	VALUE klass = RBASIC(obj)->klass;
 	st_data_t index;
 
@@ -1645,7 +1651,7 @@ vm_expandarray(rb_control_frame_t *cfp, VALUE ary, rb_num_t num, int flag)
     volatile VALUE tmp_ary;
     rb_num_t len;
 
-    if (TYPE(ary) != T_ARRAY) {
+    if (!RB_TYPE_P(ary, T_ARRAY)) {
 	ary = rb_ary_to_ary(ary);
     }
 

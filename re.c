@@ -1674,11 +1674,12 @@ name_to_backref_number(struct re_registers *regs, VALUE regexp, const char* name
  *     mtch[range]           -> array
  *     mtch[name]            -> str or nil
  *
- *  Match Reference---<code>MatchData</code> acts as an array, and may be
- *  accessed using the normal array indexing techniques.  <i>mtch</i>[0] is
- *  equivalent to the special variable <code>$&</code>, and returns the entire
- *  matched string.  <i>mtch</i>[1], <i>mtch</i>[2], and so on return the values
- *  of the matched backreferences (portions of the pattern between parentheses).
+ *  Match Reference -- <code>MatchData</code> acts as an array, and may be
+ *  accessed using the normal array indexing techniques.  <code>mtch[0]</code>
+ *  is equivalent to the special variable <code>$&</code>, and returns the
+ *  entire matched string.  <code>mtch[1]</code>, <code>mtch[2]</code>, and so
+ *  on return the values of the matched backreferences (portions of the
+ *  pattern between parentheses).
  *
  *     m = /(.)(.)(\d+)(\d)/.match("THX1138.")
  *     m          #=> #<MatchData "HX1138" 1:"H" 2:"X" 3:"113" 4:"8">
@@ -2587,7 +2588,7 @@ static VALUE
 rb_reg_equal(VALUE re1, VALUE re2)
 {
     if (re1 == re2) return Qtrue;
-    if (TYPE(re2) != T_REGEXP) return Qfalse;
+    if (!RB_TYPE_P(re2, T_REGEXP)) return Qfalse;
     rb_reg_check(re1); rb_reg_check(re2);
     if (FL_TEST(re1, KCODE_FIXED) != FL_TEST(re2, KCODE_FIXED)) return Qfalse;
     if (RREGEXP(re1)->ptr->options != RREGEXP(re2)->ptr->options) return Qfalse;
@@ -2635,7 +2636,7 @@ match_equal(VALUE match1, VALUE match2)
 {
     const struct re_registers *regs1, *regs2;
     if (match1 == match2) return Qtrue;
-    if (TYPE(match2) != T_MATCH) return Qfalse;
+    if (!RB_TYPE_P(match2, T_MATCH)) return Qfalse;
     if (!rb_str_equal(RMATCH(match1)->str, RMATCH(match2)->str)) return Qfalse;
     if (!rb_reg_equal(RMATCH(match1)->regexp, RMATCH(match2)->regexp)) return Qfalse;
     regs1 = RMATCH_REGS(match1);
@@ -2795,7 +2796,7 @@ rb_reg_match2(VALUE re)
     long start;
     VALUE line = rb_lastline_get();
 
-    if (TYPE(line) != T_STRING) {
+    if (!RB_TYPE_P(line, T_STRING)) {
 	rb_backref_set(Qnil);
 	return Qnil;
     }

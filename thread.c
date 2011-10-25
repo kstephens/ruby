@@ -493,7 +493,7 @@ thread_start_func_2(rb_thread_t *th, VALUE *stack_start, VALUE *register_stack_s
 
 	main_th = th->vm->main_thread;
 	if (th != main_th) {
-	    if (TYPE(errinfo) == T_OBJECT) {
+	    if (RB_TYPE_P(errinfo, T_OBJECT)) {
 		/* treat with normal error object */
 		rb_threadptr_raise(main_th, 1, &errinfo);
 	    }
@@ -2519,33 +2519,6 @@ rb_fd_set(int fd, rb_fdset_t *set)
 #define rb_fd_rcopy(d, s) (*(d) = *(s))
 #endif
 
-#if defined(__CYGWIN__)
-static long
-cmp_tv(const struct timeval *a, const struct timeval *b)
-{
-    long d = (a->tv_sec - b->tv_sec);
-    return (d != 0) ? d : (a->tv_usec - b->tv_usec);
-}
-
-static int
-subtract_tv(struct timeval *rest, const struct timeval *wait)
-{
-    if (rest->tv_sec < wait->tv_sec) {
-	return 0;
-    }
-    while (rest->tv_usec < wait->tv_usec) {
-	if (rest->tv_sec <= wait->tv_sec) {
-	    return 0;
-	}
-	rest->tv_sec -= 1;
-	rest->tv_usec += 1000 * 1000;
-    }
-    rest->tv_sec -= wait->tv_sec;
-    rest->tv_usec -= wait->tv_usec;
-    return rest->tv_sec != 0 || rest->tv_usec != 0;
-}
-#endif
-
 static int
 do_select(int n, rb_fdset_t *read, rb_fdset_t *write, rb_fdset_t *except,
 	  struct timeval *timeout)
@@ -2556,17 +2529,10 @@ do_select(int n, rb_fdset_t *read, rb_fdset_t *write, rb_fdset_t *except,
     rb_fdset_t UNINITIALIZED_VAR(orig_except);
     double limit = 0;
     struct timeval wait_rest;
-# if defined(__CYGWIN__)
-    struct timeval start_time;
-# endif
+    rb_thread_t *th = GET_THREAD();
 
     if (timeout) {
-# if defined(__CYGWIN__)
-	gettimeofday(&start_time, NULL);
-	limit = (double)start_time.tv_sec + (double)start_time.tv_usec*1e-6;
-# else
 	limit = timeofday();
-# endif
 	limit += (double)timeout->tv_sec+(double)timeout->tv_usec*1e-6;
 	wait_rest = *timeout;
 	timeout = &wait_rest;
@@ -2582,58 +2548,10 @@ do_select(int n, rb_fdset_t *read, rb_fdset_t *write, rb_fdset_t *except,
   retry:
     lerrno = 0;
 
-#if defined(__CYGWIN__)
-    {
-	int finish = 0;
-	/* polling duration: 100ms */
-	struct timeval wait_100ms, *wait;
-	wait_100ms.tv_sec = 0;
-	wait_100ms.tv_usec = 100 * 1000; /* 100 ms */
-
-	do {
-	    wait = (timeout == 0 || cmp_tv(&wait_100ms, timeout) < 0) ? &wait_100ms : timeout;
-	    BLOCKING_REGION({
-		do {
-		    result = rb_fd_select(n, read, write, except, wait);
-		    if (result < 0) lerrno = errno;
-		    if (result != 0) break;
-
-		    if (read)
-			rb_fd_dup(read, &orig_read);
-		    if (write)
-			rb_fd_dup(write, &orig_write);
-		    if (except)
-			rb_fd_dup(except, &orig_except);
-		    if (timeout) {
-			struct timeval elapsed;
-			gettimeofday(&elapsed, NULL);
-			subtract_tv(&elapsed, &start_time);
-			gettimeofday(&start_time, NULL);
-			if (!subtract_tv(timeout, &elapsed)) {
-			    finish = 1;
-			    break;
-			}
-			if (cmp_tv(&wait_100ms, timeout) > 0) wait = timeout;
-		    }
-		} while (__th->interrupt_flag == 0);
-	    }, 0, 0);
-	} while (result == 0 && !finish);
-    }
-#elif defined(_WIN32)
-    {
-	rb_thread_t *th = GET_THREAD();
-	BLOCKING_REGION({
+    BLOCKING_REGION({
 	    result = native_fd_select(n, read, write, except, timeout, th);
 	    if (result < 0) lerrno = errno;
 	}, ubf_select, th);
-    }
-#else
-    BLOCKING_REGION({
-	result = rb_fd_select(n, read, write, except, timeout);
-	if (result < 0) lerrno = errno;
-    }, ubf_select, GET_THREAD());
-#endif
-
     errno = lerrno;
 
     if (result < 0) {
@@ -3820,7 +3738,7 @@ recursive_list_access(void)
     volatile VALUE hash = rb_thread_local_aref(rb_thread_current(), recursive_key);
     VALUE sym = ID2SYM(rb_frame_this_func());
     VALUE list;
-    if (NIL_P(hash) || TYPE(hash) != T_HASH) {
+    if (NIL_P(hash) || !RB_TYPE_P(hash, T_HASH)) {
 	hash = rb_hash_new();
 	OBJ_UNTRUST(hash);
 	rb_thread_local_aset(rb_thread_current(), recursive_key, hash);
@@ -3829,7 +3747,7 @@ recursive_list_access(void)
     else {
 	list = rb_hash_aref(hash, sym);
     }
-    if (NIL_P(list) || TYPE(list) != T_HASH) {
+    if (NIL_P(list) || !RB_TYPE_P(list, T_HASH)) {
 	list = rb_hash_new();
 	OBJ_UNTRUST(list);
 	rb_hash_aset(hash, sym, list);
@@ -3850,7 +3768,7 @@ recursive_check(VALUE list, VALUE obj_id, VALUE paired_obj_id)
     if (pair_list == Qundef)
 	return Qfalse;
     if (paired_obj_id) {
-	if (TYPE(pair_list) != T_HASH) {
+	if (!RB_TYPE_P(pair_list, T_HASH)) {
 	if (pair_list != paired_obj_id)
 	    return Qfalse;
 	}
@@ -3883,7 +3801,7 @@ recursive_push(VALUE list, VALUE obj, VALUE paired_obj)
 	rb_hash_aset(list, obj, paired_obj);
     }
     else {
-	if (TYPE(pair_list) != T_HASH){
+	if (!RB_TYPE_P(pair_list, T_HASH)){
 	    VALUE other_paired_obj = pair_list;
 	    pair_list = rb_hash_new();
 	    OBJ_UNTRUST(pair_list);
@@ -3913,7 +3831,7 @@ recursive_pop(VALUE list, VALUE obj, VALUE paired_obj)
 	    rb_raise(rb_eTypeError, "invalid inspect_tbl pair_list for %s in %s",
 		     StringValuePtr(symname), StringValuePtr(thrname));
 	}
-	if (TYPE(pair_list) == T_HASH) {
+	if (RB_TYPE_P(pair_list, T_HASH)) {
 	    rb_hash_delete(pair_list, paired_obj);
 	    if (!RHASH_EMPTY_P(pair_list)) {
 		return; /* keep hash until is empty */
@@ -4506,7 +4424,7 @@ call_trace_proc(VALUE args, int tracing)
     if (id == ID_ALLOCATOR)
       return Qnil;
     if (klass) {
-	if (TYPE(klass) == T_ICLASS) {
+	if (RB_TYPE_P(klass, T_ICLASS)) {
 	    klass = RBASIC(klass)->klass;
 	}
 	else if (FL_TEST(klass, FL_SINGLETON)) {

@@ -432,7 +432,7 @@ inspect_obj(VALUE obj, VALUE str, int recur)
 static VALUE
 rb_obj_inspect(VALUE obj)
 {
-    if (TYPE(obj) == T_OBJECT && rb_obj_basic_to_s_p(obj)) {
+    if (RB_TYPE_P(obj, T_OBJECT) && rb_obj_basic_to_s_p(obj)) {
         int has_ivar = 0;
         VALUE *ptr = ROBJECT_IVPTR(obj);
         long len = ROBJECT_NUMIV(obj);
@@ -1661,7 +1661,7 @@ rb_class_superclass(VALUE klass)
 	if (klass == rb_cBasicObject) return Qnil;
 	rb_raise(rb_eTypeError, "uninitialized class");
     }
-    while (TYPE(super) == T_ICLASS) {
+    while (RB_TYPE_P(super, T_ICLASS)) {
 	super = RCLASS_SUPER(super);
     }
     if (!super) {
@@ -2157,7 +2157,7 @@ rb_to_integer(VALUE val, const char *method)
     VALUE v;
 
     if (FIXNUM_P(val)) return val;
-    if (TYPE(val) == T_BIGNUM) return val;
+    if (RB_TYPE_P(val, T_BIGNUM)) return val;
     v = convert_type(val, "Integer", method, TRUE);
     if (!rb_obj_is_kind_of(v, rb_cInteger)) {
 	const char *cname = rb_obj_classname(val);
@@ -2173,7 +2173,7 @@ rb_check_to_integer(VALUE val, const char *method)
     VALUE v;
 
     if (FIXNUM_P(val)) return val;
-    if (TYPE(val) == T_BIGNUM) return val;
+    if (RB_TYPE_P(val, T_BIGNUM)) return val;
     v = convert_type(val, "Integer", method, FALSE);
     if (!rb_obj_is_kind_of(v, rb_cInteger)) {
 	return Qnil;
@@ -2437,7 +2437,7 @@ rb_f_float(VALUE obj, VALUE arg)
 VALUE
 rb_to_float(VALUE val)
 {
-    if (TYPE(val) == T_FLOAT) return val;
+    if (RB_TYPE_P(val, T_FLOAT)) return val;
     if (!rb_obj_is_kind_of(val, rb_cNumeric)) {
 	rb_raise(rb_eTypeError, "can't convert %s into Float",
 		 NIL_P(val) ? "nil" :
@@ -2451,7 +2451,7 @@ rb_to_float(VALUE val)
 VALUE
 rb_check_to_float(VALUE val)
 {
-    if (TYPE(val) == T_FLOAT) return val;
+    if (RB_TYPE_P(val, T_FLOAT)) return val;
     if (!rb_obj_is_kind_of(val, rb_cNumeric)) {
 	return Qnil;
     }
@@ -2544,10 +2544,16 @@ rb_f_array(VALUE obj, VALUE arg)
  *  Classes in Ruby are first-class objects---each is an instance of
  *  class <code>Class</code>.
  *
- *  When a new class is created (typically using <code>class Name ...
- *  end</code>), an object of type <code>Class</code> is created and
- *  assigned to a global constant (<code>Name</code> in this case). When
- *  <code>Name.new</code> is called to create a new object, the
+ *  Typically, you create a new class by using:
+ *
+ *    class Name
+ *     # some class describing the class behavior
+ *    end
+ *
+ *  When a new class is created, an object of type Class is initialized and
+ *  assigned to a global constant (<code>Name</code> in this case).
+ *
+ *  When <code>Name.new</code> is called to create a new object, the
  *  <code>new</code> method in <code>Class</code> is run by default.
  *  This can be demonstrated by overriding <code>new</code> in
  *  <code>Class</code>:
@@ -2670,12 +2676,17 @@ rb_f_array(VALUE obj, VALUE arg)
 
 /*  Document-class: Object
  *
- *  Object is the root of Ruby's class hierarchy.  Its methods are available
- *  to all classes unless explicitly overridden.
+ *  Object is the default root of all Ruby objects.  Object inherits from
+ *  BasicObject which allows creating alternate object hierarchies.  Methods
+ *  on object are available to all classes unless explicitly overridden.
  *
  *  Object mixes in the Kernel module, making the built-in kernel functions
- *  globally accessible. Although the instance methods of Object are defined
+ *  globally accessible.  Although the instance methods of Object are defined
  *  by the Kernel module, we have chosen to document them here for clarity.
+ *
+ *  When referencing constants in classes inheriting from Object you do not
+ *  need to use the full namespace.  For example, referencing +File+ inside
+ *  +YourClass+ will find the top-level File class.
  *
  *  In the descriptions of Object's methods, the parameter <i>symbol</i> refers
  *  to a symbol, which is either a quoted string or a Symbol (such as

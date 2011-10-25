@@ -15,7 +15,7 @@
 #include "gc.h"
 #include "eval_intern.h"
 
-#if ((defined(_WIN32) && _WIN32_WINNT >= 0x0400) || (defined(HAVE_GETCONTEXT) && defined(HAVE_SETCONTEXT))) && !defined(__NetBSD__) && !defined(sun) && !defined(FIBER_USE_NATIVE)
+#if ((defined(_WIN32) && _WIN32_WINNT >= 0x0400) || (defined(HAVE_GETCONTEXT) && defined(HAVE_SETCONTEXT))) && !defined(__NetBSD__) && !defined(__sun) && !defined(FIBER_USE_NATIVE)
 #define FIBER_USE_NATIVE 1
 
 /* FIBER_USE_NATIVE enables Fiber performance improvement using system
@@ -139,6 +139,7 @@ cont_mark(void *ptr)
 	rb_context_t *cont = ptr;
 	rb_gc_mark(cont->value);
 	rb_thread_mark(&cont->saved_thread);
+	rb_gc_mark(cont->saved_thread.self);
 
 	if (cont->vm_stack) {
 #ifdef CAPTURE_JUST_VALID_VM_STACK
@@ -1205,10 +1206,10 @@ fiber_store(rb_fiber_t *next_fib)
 
 #if !FIBER_USE_NATIVE
     cont_save_machine_stack(th, &fib->cont);
+#endif
 
-    if (ruby_setjmp(fib->cont.jmpbuf)) {
-#else /* FIBER_USE_NATIVE */
-    {
+    if (FIBER_USE_NATIVE || ruby_setjmp(fib->cont.jmpbuf)) {
+#if FIBER_USE_NATIVE
 	fiber_setcontext(next_fib, fib);
 #ifndef _WIN32
 	if (terminated_machine_stack.ptr) {

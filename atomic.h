@@ -36,19 +36,30 @@ rb_w32_atomic_or(volatile rb_atomic_t *var, rb_atomic_t val)
  * http://gcc.gnu.org/onlinedocs/gcc/Atomic-Builtins.html */
 
 typedef unsigned int rb_atomic_t; /* Anything OK */
-# define ATOMIC_SET(var, val)  __sync_lock_test_and_set(&(var), (val))
+# define ATOMIC_SET(var, val)  (void)__sync_lock_test_and_set(&(var), (val))
 # define ATOMIC_INC(var) __sync_fetch_and_add(&(var), 1)
 # define ATOMIC_DEC(var) __sync_fetch_and_sub(&(var), 1)
 # define ATOMIC_OR(var, val) __sync_or_and_fetch(&(var), (val))
 # define ATOMIC_EXCHANGE(var, val) __sync_lock_test_and_set(&(var), (val))
 
+#elif defined(__sun)
+#include <atomic.h>
+typedef unsigned int rb_atomic_t;
+
+# define ATOMIC_SET(var, val) (void)atomic_swap_uint(&(var), (val))
+# define ATOMIC_INC(var) atomic_inc_uint(&(var))
+# define ATOMIC_DEC(var) atomic_dec_uint(&(var))
+# define ATOMIC_OR(var, val) atomic_or_uint(&(var), (val))
+# define ATOMIC_EXCHANGE(var, val) atomic_swap_uint(&(var), (val))
+
 #else
 typedef int rb_atomic_t;
+#define NEED_RUBY_ATOMIC_EXCHANGE
 extern rb_atomic_t ruby_atomic_exchange(rb_atomic_t *ptr, rb_atomic_t val);
 
-# define ATOMIC_SET(var, val) ((var) = (val))
-# define ATOMIC_INC(var) (++(var))
-# define ATOMIC_DEC(var) (--(var))
+# define ATOMIC_SET(var, val) (void)((var) = (val))
+# define ATOMIC_INC(var) ((var)++)
+# define ATOMIC_DEC(var) ((var)--)
 # define ATOMIC_OR(var, val) ((var) |= (val))
 # define ATOMIC_EXCHANGE(var, val) ruby_atomic_exchange(&(var), (val))
 #endif

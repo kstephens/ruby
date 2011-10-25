@@ -856,6 +856,12 @@ native_thread_apply_priority(rb_thread_t *th)
 
 #endif /* USE_NATIVE_THREAD_PRIORITY */
 
+static int
+native_fd_select(int n, rb_fdset_t *readfds, rb_fdset_t *writefds, rb_fdset_t *exceptfds, struct timeval *timeout, rb_thread_t *th)
+{
+    return rb_fd_select(n, readfds, writefds, exceptfds, timeout);
+}
+
 static void
 ubf_pthread_cond_signal(void *ptr)
 {
@@ -1208,8 +1214,8 @@ rb_thread_create_timer_thread(void)
 	    if (err != 0) {
 		rb_bug_errno("thread_timer: Failed to create communication pipe for timer thread", errno);
 	    }
-            rb_update_max_fd(timer_thread_pipe[0]);
-            rb_update_max_fd(timer_thread_pipe[1]);
+            rb_fd_set_cloexec(timer_thread_pipe[0]);
+            rb_fd_set_cloexec(timer_thread_pipe[1]);
 #if defined(HAVE_FCNTL) && defined(F_GETFL) && defined(F_SETFL)
 	    {
 		int oflags;

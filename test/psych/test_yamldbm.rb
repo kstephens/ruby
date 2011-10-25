@@ -1,19 +1,32 @@
 # -*- coding: UTF-8 -*-
-require 'test/unit'
-require 'yaml/dbm'
-Psych::DBM = YAML::DBM unless defined?(Psych::DBM)
+begin
+  require 'test/unit'
+  require 'yaml/dbm'
+  require 'tmpdir'
+rescue LoadError
+end
 
 module Psych
+  ::Psych::DBM = ::YAML::DBM unless defined?(::Psych::DBM)
+
   class YAMLDBMTest < Test::Unit::TestCase
     def setup
       @engine, YAML::ENGINE.yamler = YAML::ENGINE.yamler, 'psych'
-      @yamldbm_file = "yamldbm.tmp.#{Process.pid}"
+      @dir = Dir.mktmpdir("rubytest-file")
+      File.chown(-1, Process.gid, @dir)
+      @yamldbm_file = make_tmp_filename("yamldbm")
       @yamldbm = YAML::DBM.new(@yamldbm_file)
     end
 
     def teardown
       YAML::ENGINE.yamler = @engine
-      File.unlink(@yamldbm_file + '.db') rescue nil
+      @yamldbm.clear
+      @yamldbm.close
+      FileUtils.remove_entry_secure @dir
+    end
+
+    def make_tmp_filename(prefix)
+      @dir + "/" + prefix + File.basename(__FILE__) + ".#{$$}.test"
     end
 
     def test_store
@@ -148,5 +161,34 @@ module Psych
       assert_equal({'a'=>'b','e'=>'f'}, @yamldbm.reject {|k,v| v == 'd'})
       assert_equal({'a'=>'b','c'=>'d','e'=>'f'}, @yamldbm.reject {false})
     end
+
+    def test_values
+      assert_equal [], @yamldbm.values
+      @yamldbm['a'] = 'b'
+      @yamldbm['c'] = 'd'
+      assert_equal ['b','d'], @yamldbm.values
+    end
+
+    def test_values_at
+      @yamldbm['a'] = 'b'
+      @yamldbm['c'] = 'd'
+      assert_equal ['b','d'], @yamldbm.values_at('a','c')
+    end
+
+    def test_selsct
+      @yamldbm['a'] = 'b'
+      @yamldbm['c'] = 'd'
+      @yamldbm['e'] = 'f'
+      assert_equal(['b','d'], @yamldbm.select('a','c'))
+    end
+
+    def test_selsct_with_block
+      @yamldbm['a'] = 'b'
+      @yamldbm['c'] = 'd'
+      @yamldbm['e'] = 'f'
+      assert_equal([['a','b']], @yamldbm.select {|k,v| k == 'a'})
+      assert_equal([['c','d']], @yamldbm.select {|k,v| v == 'd'})
+      assert_equal([], @yamldbm.select {false})
+    end
   end
-end
+end if defined?(YAML::DBM)
