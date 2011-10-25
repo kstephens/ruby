@@ -293,6 +293,8 @@ static void event_log_finalizer_free(void *callback, void *func_data, void *addr
 
 static void event_log_at_exit(void *callback, void *func_data, void *addr, size_t size)
 {
+  if ( ! event_log ) return;
+  // ++ event_id;
   fprintf(event_log, "%d %lu EXIT\n", getpid(), event_id);
   if ( event_log != stderr ) fclose(event_log);
   event_log = 0;
