@@ -11,8 +11,10 @@
 #include "mem_api.h"
 #include <string.h>
 #include <stdlib.h>
+#include <assert.h>
 
-static rb_mem_sys ms; /* The active, selected rb_mem_sys. */
+static rb_mem_sys ms; /* The active rb_mem_sys. */
+static rb_mem_sys *selected; /* The selected rb_mem_sys, copied to ms. */
 static rb_mem_sys *mem_sys_list = 0; /* List of registered rb_mem_sys objects. */
 
 void rb_mem_sys_register(rb_mem_sys *mem_sys)
@@ -28,8 +30,8 @@ void rb_mem_sys_init()
     extern rb_mem_sys rb_mem_sys_##N;		\
     rb_mem_sys_register(&rb_mem_sys_##N);	\
   }
-  MEM_SYS(core);
   MEM_SYS(malloc);
+  MEM_SYS(core);
 #undef MEM_SYS
 }
 
@@ -56,12 +58,14 @@ void rb_mem_sys_select(const char *name)
       p = p->next;
     }
     if ( p ) {
+      selected = p;
       ms = *p;
+      ms.opts = options;
       if ( ms.initialize )
 	ms.initialize(&ms);
       if ( ms.options && *options )
 	ms.options(&ms, options);
-      // fprintf(stderr, "\nrb_mem_sys_select: selected %s\n", ms.name);
+      fprintf(stderr, "\nrb_mem_sys_select: selected %s\n", p->name);
     } else {
       rb_fatal("rb_mem_sys_select: cannot locate %s", name);
       abort();
@@ -70,11 +74,56 @@ void rb_mem_sys_select(const char *name)
 }
 
 static void rb_mem_sys_event_log(const char *event_log_file);
+
 void Init_mem_sys()
 {
   rb_mem_sys_init();
   rb_mem_sys_select(0);
   rb_mem_sys_event_log(0);
+}
+
+/********************************************************************
+ * Ruby interface to mem_sys state.
+ */
+
+static VALUE rb_mMemSys;
+
+static VALUE rb_mem_sys_name(void)
+{
+  assert(selected);
+  assert(selected->name);
+  return rb_str_new_cstr(selected->name);
+}
+
+static VALUE rb_mem_sys_opts(void)
+{
+  assert(ms.opts);
+  return rb_str_new_cstr(ms.opts);
+}
+
+static VALUE rb_mem_sys_supported(void)
+{
+  VALUE result = rb_ary_new();
+  rb_mem_sys *p = mem_sys_list;
+  while ( p ) {
+    rb_ary_push(result, rb_str_new_cstr(p->name));
+    p = p->next;
+  }
+  return result;
+}
+
+static VALUE rb_mem_sys_argv0(void) /* HACK */
+{
+  return rb_argv0;
+}
+
+void Init_mem_sys_methods()
+{
+  rb_mMemSys = rb_define_module_under(rb_mGC, "MemSys");
+  rb_define_singleton_method(rb_mMemSys, "name", rb_mem_sys_name, 0);
+  rb_define_singleton_method(rb_mMemSys, "opts", rb_mem_sys_opts, 0);
+  rb_define_singleton_method(rb_mMemSys, "supported", rb_mem_sys_supported, 0);
+  rb_define_singleton_method(rb_mMemSys, "argv0", rb_mem_sys_argv0, 0); /* HACK */
 }
 
 /********************************************************************
@@ -245,6 +294,7 @@ void rb_mem_sys_invoke_callbacks(enum rb_mem_sys_event event,
 
 /********************************************************************/
 
+static size_t object_id;
 static size_t event_id;
 static FILE *event_log;
 static const char *event_log_file;
@@ -252,50 +302,51 @@ static const char *event_log_file;
 static void event_log_object_alloc(void *callback, void *func_data, void *addr, size_t size)
 {
   if ( ! event_log ) return;
+  ++ object_id;
   ++ event_id;
-  fprintf(event_log, "%d %lu o{ %p %lu\n", getpid(), event_id, addr, size);
+  fprintf(event_log, "%d %lu %lu o{ %p %lu\n", getpid(), event_id, object_id, addr, size);
 }
  
 static void event_log_object_free(void *callback, void *func_data, void *addr, size_t size)
 {
   if ( ! event_log ) return;
-  // ++ event_id;
-  fprintf(event_log, "%d %lu o} %p %lu\n", getpid(), event_id, addr, size);
+  ++ event_id;
+  fprintf(event_log, "%d %lu %lu o} %p %lu\n", getpid(), event_id, object_id, addr, size);
 }
 
 static void event_log_page_alloc(void *callback, void *func_data, void *addr, size_t size)
 {
   if ( ! event_log ) return;
-  // ++ event_id;
-  fprintf(event_log, "%d %lu p{ %p %lu\n", getpid(), event_id, addr, size);
+  ++ event_id;
+  fprintf(event_log, "%d %lu %lu p{ %p %lu\n", getpid(), event_id, object_id, addr, size);
 }
  
 static void event_log_page_free(void *callback, void *func_data, void *addr, size_t size)
 {
   if ( ! event_log ) return;
-  // ++ event_id;
-  fprintf(event_log, "%d %lu p} %p %lu\n", getpid(), event_id, addr, size);
+  ++ event_id;
+  fprintf(event_log, "%d %lu %lu p} %p %lu\n", getpid(), event_id, object_id, addr, size);
 }
 
 static void event_log_finalizer_alloc(void *callback, void *func_data, void *addr, size_t size)
 {
   if ( ! event_log ) return;
-  // ++ event_id;
-  fprintf(event_log, "%d %lu f{ %p %lu\n", getpid(), event_id, addr, size);
+  ++ event_id;
+  fprintf(event_log, "%d %lu %lu f{ %p %lu\n", getpid(), event_id, object_id, addr, size);
 }
  
 static void event_log_finalizer_free(void *callback, void *func_data, void *addr, size_t size)
 {
   if ( ! event_log ) return;
-  // ++ event_id;
-  fprintf(event_log, "%d %lu f} %p %lu\n", getpid(), event_id, addr, size);
+  ++ event_id;
+  fprintf(event_log, "%d %lu %lu f} %p %lu\n", getpid(), event_id, object_id, addr, size);
 }
 
 static void event_log_at_exit(void *callback, void *func_data, void *addr, size_t size)
 {
   if ( ! event_log ) return;
-  // ++ event_id;
-  fprintf(event_log, "%d %lu EXIT\n", getpid(), event_id);
+  ++ event_id;
+  fprintf(event_log, "%d %lu %lu EXIT\n", getpid(), event_id, object_id);
   if ( event_log != stderr ) fclose(event_log);
   event_log = 0;
 }

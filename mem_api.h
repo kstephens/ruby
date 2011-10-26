@@ -45,6 +45,7 @@ typedef struct rb_mem_sys {
   void (*gc_undefine_finalizer)(VALUE obj);
   void (*gc_at_exit)();
   struct rb_mem_sys *next; /* mem_sys_list */
+  const char *opts;
 } rb_mem_sys;
 
 extern size_t rb_sizeof_RVALUE; /* HACK!!! */

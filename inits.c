@@ -60,6 +60,7 @@ rb_call_inits(void)
     CALL(Cont);
     CALL(Rational);
     CALL(Complex);
+    CALL(mem_sys_methods);
     CALL(version);
 }
 #undef CALL
