@@ -65,7 +65,7 @@ void rb_mem_sys_select(const char *name)
 	ms.initialize(&ms);
       if ( ms.options && *options )
 	ms.options(&ms, options);
-      fprintf(stderr, "\nrb_mem_sys_select: selected %s\n", p->name);
+      // fprintf(stderr, "\nrb_mem_sys_select: pid=%d selected %s\n", (int) getpid(), p->name);
     } else {
       rb_fatal("rb_mem_sys_select: cannot locate %s", name);
       abort();
@@ -294,59 +294,59 @@ void rb_mem_sys_invoke_callbacks(enum rb_mem_sys_event event,
 
 /********************************************************************/
 
-static size_t object_id;
-static size_t event_id;
+static unsigned long object_alloc_id;
+static unsigned long event_id;
 static FILE *event_log;
 static const char *event_log_file;
 
 static void event_log_object_alloc(void *callback, void *func_data, void *addr, size_t size)
 {
   if ( ! event_log ) return;
-  ++ object_id;
+  ++ object_alloc_id;
   ++ event_id;
-  fprintf(event_log, "%d %lu %lu o{ %p %lu\n", getpid(), event_id, object_id, addr, size);
+  fprintf(event_log, "%d %lu %lu oa %p %lu\n", (int) getpid(), event_id, object_alloc_id, addr, size);
 }
  
 static void event_log_object_free(void *callback, void *func_data, void *addr, size_t size)
 {
   if ( ! event_log ) return;
   ++ event_id;
-  fprintf(event_log, "%d %lu %lu o} %p %lu\n", getpid(), event_id, object_id, addr, size);
+  fprintf(event_log, "%d %lu %lu of %p %lu\n", (int) getpid(), event_id, object_alloc_id, addr, size);
 }
 
 static void event_log_page_alloc(void *callback, void *func_data, void *addr, size_t size)
 {
   if ( ! event_log ) return;
   ++ event_id;
-  fprintf(event_log, "%d %lu %lu p{ %p %lu\n", getpid(), event_id, object_id, addr, size);
+  fprintf(event_log, "%d %lu %lu pa %p %lu\n", (int) getpid(), event_id, object_alloc_id, addr, size);
 }
  
 static void event_log_page_free(void *callback, void *func_data, void *addr, size_t size)
 {
   if ( ! event_log ) return;
   ++ event_id;
-  fprintf(event_log, "%d %lu %lu p} %p %lu\n", getpid(), event_id, object_id, addr, size);
+  fprintf(event_log, "%d %lu %lu pf %p %lu\n", (int) getpid(), event_id, object_alloc_id, addr, size);
 }
 
 static void event_log_finalizer_alloc(void *callback, void *func_data, void *addr, size_t size)
 {
   if ( ! event_log ) return;
   ++ event_id;
-  fprintf(event_log, "%d %lu %lu f{ %p %lu\n", getpid(), event_id, object_id, addr, size);
+  fprintf(event_log, "%d %lu %lu fa %p %lu\n", (int) getpid(), event_id, object_alloc_id, addr, size);
 }
  
 static void event_log_finalizer_free(void *callback, void *func_data, void *addr, size_t size)
 {
   if ( ! event_log ) return;
   ++ event_id;
-  fprintf(event_log, "%d %lu %lu f} %p %lu\n", getpid(), event_id, object_id, addr, size);
+  fprintf(event_log, "%d %lu %lu ff %p %lu\n", (int) getpid(), event_id, object_alloc_id, addr, size);
 }
 
 static void event_log_at_exit(void *callback, void *func_data, void *addr, size_t size)
 {
   if ( ! event_log ) return;
   ++ event_id;
-  fprintf(event_log, "%d %lu %lu EXIT\n", getpid(), event_id, object_id);
+  fprintf(event_log, "%d %lu %lu EXIT\n", (int) getpid(), event_id, object_alloc_id);
   if ( event_log != stderr ) fclose(event_log);
   event_log = 0;
 }
