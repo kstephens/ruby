@@ -64,8 +64,8 @@ class TestMemSys < Test::Unit::TestCase
   end
 
   def test_mem_sys_event_log
-    file = tempfile('mem_sys_event_log.txt')
-    ENV['RUBY_MEM_SYS_EVENT_LOG'] = file.to_s
+    file = tempfile(['mem_sys_event_log', '.txt'])
+    ENV['RUBY_MEM_SYS_EVENT_LOG'] = file.path
     args = [ argv0, '-e', 'puts (0..10).to_a.inspect' ]
     pid = Kernel.fork do
       exec(*args)
