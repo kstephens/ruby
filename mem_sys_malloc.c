@@ -118,10 +118,11 @@ void rb_gc_undefine_finalizer_malloc(VALUE obj)
   while ( (f = *fp) ) {
     void *f_next = &(f->next);
     if ( f->obj == obj ) {
-      free(f);
       *fp = f->next;
+      free(f);
+    } else {
+      fp = f_next;
     }
-    fp = f_next;
   }
 }
 
