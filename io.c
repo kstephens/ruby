@@ -595,26 +595,28 @@ struct io_internal_read_struct {
     int fd;
     void *buf;
     size_t capa;
+    ssize_t result;
 };
 
 struct io_internal_write_struct {
     int fd;
     const void *buf;
     size_t capa;
+    ssize_t result;
 };
 
 static VALUE
 internal_read_func(void *ptr)
 {
     struct io_internal_read_struct *iis = ptr;
-    return read(iis->fd, iis->buf, iis->capa);
+    return iis->result = read(iis->fd, iis->buf, iis->capa);
 }
 
 static VALUE
 internal_write_func(void *ptr)
 {
     struct io_internal_write_struct *iis = ptr;
-    return write(iis->fd, iis->buf, iis->capa);
+    return iis->result = write(iis->fd, iis->buf, iis->capa);
 }
 
 static ssize_t
@@ -624,8 +626,11 @@ rb_read_internal(int fd, void *buf, size_t count)
     iis.fd = fd;
     iis.buf = buf;
     iis.capa = count;
+    iis.result = -1;
 
-    return (ssize_t)rb_thread_io_blocking_region(internal_read_func, &iis, fd);
+    rb_thread_io_blocking_region(internal_read_func, &iis, fd);
+    fprintf(stderr, "%d: rb_read_internal(%d, %p, %lu): result = %ld\n", __LINE__, (int)fd, (void*) buf, (unsigned long) count, (long) iis.result);
+    return iis.result;
 }
 
 static ssize_t
@@ -635,6 +640,7 @@ rb_write_internal(int fd, const void *buf, size_t count)
     iis.fd = fd;
     iis.buf = buf;
     iis.capa = count;
+    iis.result = -1;
 
     return (ssize_t)rb_thread_io_blocking_region(internal_write_func, &iis, fd);
 }
@@ -1566,6 +1572,7 @@ io_bufread(char *ptr, long len, rb_io_t *fptr)
 	while (n > 0) {
           again:
 	    c = rb_read_internal(fptr->fd, ptr+offset, n);
+	    fprintf(stderr, "%d: io_bufread(%p, %ld, %p (%d)): c = %ld\n", __LINE__, (void*) ptr, (long) len, (void*) fptr, (int) fptr->fd, (long) c);
 	    if (c == 0) break;
 	    if (c < 0) {
                 if (rb_io_wait_readable(fptr->fd))
@@ -1576,6 +1583,7 @@ io_bufread(char *ptr, long len, rb_io_t *fptr)
 	    if ((n -= c) <= 0) break;
 	    rb_thread_wait_fd(fptr->fd);
 	}
+	fprintf(stderr, "%d: io_bufread(%p, %ld, %p) len = %ld\n", __LINE__, (void*) ptr, (long) len, (void*) fptr, (long) (len - n));
 	return len - n;
     }
 
@@ -1591,6 +1599,8 @@ io_bufread(char *ptr, long len, rb_io_t *fptr)
 	    break;
 	}
     }
+    fprintf(stderr, "%d: io_bufread(%p, %ld, %p) len = %ld\n", __LINE__, (void*) ptr, (long) len, (void*) fptr, (long) (len - n));
+
     return len - n;
 }
 
@@ -1603,6 +1613,7 @@ io_fread(VALUE str, long offset, rb_io_t *fptr)
     len = io_bufread(RSTRING_PTR(str) + offset, RSTRING_LEN(str) - offset,
 		     fptr);
     rb_str_unlocktmp(str);
+    fprintf(stderr, "%d: io_fread(%p, %ld, %p) len = %ld\n", __LINE__, (void*) str, (long) offset, (void*) fptr, (long) len);
     if (len < 0) rb_sys_fail_path(fptr->pathv);
     return len;
 }
@@ -7289,6 +7300,7 @@ rb_f_backquote(VALUE obj, VALUE str)
 
     SafeStringValue(str);
     port = pipe_open_s(str, "r", FMODE_READABLE|DEFAULT_TEXTMODE, NULL);
+    fprintf(stderr, "\nrb_f_backquote: port = %p\n", (void*) port);
     if (NIL_P(port)) return rb_str_new(0,0);
 
     GetOpenFile(port, fptr);
