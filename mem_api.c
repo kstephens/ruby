@@ -73,57 +73,13 @@ void rb_mem_sys_select(const char *name)
   }
 }
 
-static void rb_mem_sys_event_log(const char *event_log_file);
+static void rb_mem_sys_event_log_open(const char *event_log_file);
 
 void Init_mem_sys()
 {
   rb_mem_sys_init();
   rb_mem_sys_select(0);
-  rb_mem_sys_event_log(0);
-}
-
-/********************************************************************
- * Ruby interface to mem_sys state.
- */
-
-static VALUE rb_mMemSys;
-
-static VALUE rb_mem_sys_name(void)
-{
-  assert(selected);
-  assert(selected->name);
-  return rb_str_new_cstr(selected->name);
-}
-
-static VALUE rb_mem_sys_opts(void)
-{
-  assert(ms.opts);
-  return rb_str_new_cstr(ms.opts);
-}
-
-static VALUE rb_mem_sys_supported(void)
-{
-  VALUE result = rb_ary_new();
-  rb_mem_sys *p = mem_sys_list;
-  while ( p ) {
-    rb_ary_push(result, rb_str_new_cstr(p->name));
-    p = p->next;
-  }
-  return result;
-}
-
-static VALUE rb_mem_sys_argv0(void) /* HACK */
-{
-  return rb_argv0;
-}
-
-void Init_mem_sys_methods()
-{
-  rb_mMemSys = rb_define_module_under(rb_mGC, "MemSys");
-  rb_define_singleton_method(rb_mMemSys, "name", rb_mem_sys_name, 0);
-  rb_define_singleton_method(rb_mMemSys, "opts", rb_mem_sys_opts, 0);
-  rb_define_singleton_method(rb_mMemSys, "supported", rb_mem_sys_supported, 0);
-  rb_define_singleton_method(rb_mMemSys, "argv0", rb_mem_sys_argv0, 0); /* HACK */
+  rb_mem_sys_event_log_open(0);
 }
 
 /********************************************************************
@@ -371,7 +327,7 @@ static void rb_mem_sys_add_event_log_hooks()
   done = 1;
 }
 
-static void rb_mem_sys_event_log(const char *file)
+static void rb_mem_sys_event_log_open(const char *file)
 {
   event_log_file = file;
   if ( ! (event_log_file && *event_log_file) ) 
@@ -390,4 +346,54 @@ static void rb_mem_sys_event_log(const char *file)
   }
 }
 
+
+/********************************************************************
+ * Ruby interface to mem_sys state.
+ */
+
+static VALUE rb_mMemSys;
+
+static VALUE rb_mem_sys_name(void)
+{
+  assert(selected);
+  assert(selected->name);
+  return rb_str_new_cstr(selected->name);
+}
+
+static VALUE rb_mem_sys_opts(void)
+{
+  assert(ms.opts);
+  return rb_str_new_cstr(ms.opts);
+}
+
+static VALUE rb_mem_sys_supported(void)
+{
+  VALUE result = rb_ary_new();
+  rb_mem_sys *p = mem_sys_list;
+  while ( p ) {
+    rb_ary_push(result, rb_str_new_cstr(p->name));
+    p = p->next;
+  }
+  return result;
+}
+
+static VALUE rb_mem_sys_event_log(void)
+{
+  return event_log_file ? rb_str_new_cstr(event_log_file) : Qnil;
+}
+
+static VALUE rb_mem_sys_argv0(void) /* HACK */
+{
+  return rb_argv0;
+}
+
+void Init_mem_sys_methods()
+{
+  rb_mMemSys = rb_define_module_under(rb_mGC, "MemSys");
+  rb_define_singleton_method(rb_mMemSys, "name", rb_mem_sys_name, 0);
+  rb_define_singleton_method(rb_mMemSys, "opts", rb_mem_sys_opts, 0);
+  rb_define_singleton_method(rb_mMemSys, "supported", rb_mem_sys_supported, 0);
+  rb_define_singleton_method(rb_mMemSys, "event_log", rb_mem_sys_event_log, 0);
+  rb_define_singleton_method(rb_mMemSys, "argv0", rb_mem_sys_argv0, 0); /* HACK */
+}
 
