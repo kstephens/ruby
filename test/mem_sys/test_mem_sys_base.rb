@@ -3,15 +3,16 @@ require 'pp'
 # require_relative 'ruby/envutil'
 
 class TestMemSysBase < Test::Unit::TestCase
-  MemSys = GC::MemSys
+  MemSys = GC::MemSys unless defined? MemSys
+  DEFAULT_NAME = 'core'.freeze unless defined? DEFAULT_NAME
+
   attr_reader :argv0
   attr_reader :mem_sys, :mem_sys_name, :mem_sys_opts
-  DEFAULT_NAME = 'core'.freeze
 
   def initialize(*)
     super
     @tempfiles = [ ]
-    @argv0 = MemSys.argv0 # HACK
+    @argv0 = $ruby || MemSys.argv0 # HACK
     @mem_sys = (ENV['RUBY_MEM_SYS'] || DEFAULT_NAME).dup.freeze
     @mem_sys_name, @mem_sys_opts = @mem_sys.split(':', 2)
     @mem_sys_opts ||= ''.freeze

@@ -24,7 +24,7 @@ class TestMemSys < TestMemSysBase
     return if MemSys.name == name
     run_with_mem_sys! name, "-e", "raise unless GC::MemSys.name == '#{name}'"
     run_with_mem_sys! name, __FILE__
-    run_with_mem_sys! name, File.expand_path("../../tool/rubytest.rb", __FILE__)
+    run_with_mem_sys! name, File.expand_path("../../../tool/rubytest.rb", __FILE__)
     # run_with_mem_sys! 'malloc', 'make', 'test-all'
   end
 

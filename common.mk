@@ -487,6 +487,11 @@ no-test-knownbug: PHONY
 yes-test-knownbug: PHONY
 	-$(RUNRUBY) "$(srcdir)/bootstraptest/runner.rb" --ruby="$(PROGRAM)" $(OPTS) $(srcdir)/KNOWNBUGS.rb
 
+test-mem-sys: miniruby$(EXEEXT) $(PROGRAM) $(RBCONFIG) $(TEST_RUNNABLE)-test-mem-sys
+no-test-mem-sys: PHONY
+yes-test-mem-sys: PHONY
+	$(RUNRUBY) "$(srcdir)/test/runner.rb" --ruby="$(PROGRAM)" $(srcdir)/test/mem_sys/*.rb
+
 test: test-sample btest-ruby test-knownbug
 
 test-all: $(TEST_RUNNABLE)-test-all
