@@ -54,6 +54,7 @@ class TestMemSys < Test::Unit::TestCase
   end
 
   def run_with_mem_sys! name, *args
+    save = ENV['RUBY_MEM_SYS']
     $stderr.puts "MemSys.name = #{MemSys.name.inspect} switching to #{name.inspect}"
     unless MemSys.name == name.split(":", 2)
       ENV['RUBY_MEM_SYS'] = name
@@ -61,9 +62,12 @@ class TestMemSys < Test::Unit::TestCase
       $stderr.puts "\nrunning #{args.inspect}"
       system(*args) or raise "#{args.inspect} failed"
     end
+  ensure
+    save ? ENV['RUBY_MEM_SYS'] = save : ENV.delete('RUBY_MEM_SYS')
   end
 
   def test_mem_sys_event_log
+    save = ENV['RUBY_MEM_SYS_EVENT_LOG']
     file = tempfile('mem_sys_event_log.txt')
     ENV['RUBY_MEM_SYS_EVENT_LOG'] = file.to_s
     args = [ argv0, '-e', 'puts (0..10).to_a.inspect' ]
@@ -83,15 +87,15 @@ class TestMemSys < Test::Unit::TestCase
     contents.each do | l |
       lineno += 1
       l.chomp!
-
+      l.inspect + pid.to_s # $stderr.puts "pid = #{pid} l = #{l.inspect}"
       case l
-      when /^#{pid} (\d+) (\d+) o\{ (0x[0-9a-f]+) (\d+)$/i
+      when /^#{pid} (\d+) (\d+) oa (0x[0-9a-f]+) (\d+)$/i
         o_a << l
-      when /^#{pid} (\d+) (\d+) o\} (0x[0-9a-f]+) (\d+)$/i
+      when /^#{pid} (\d+) (\d+) of (0x[0-9a-f]+) (\d+)$/i
         o_f << l
-      when /^#{pid} (\d+) (\d+) p\{ (0x[0-9a-f]+) (\d+)$/i
+      when /^#{pid} (\d+) (\d+) pa (0x[0-9a-f]+) (\d+)$/i
         p_a << l
-      when /^#{pid} (\d+) (\d+) p\} (0x[0-9a-f]+) (\d+)$/i
+      when /^#{pid} (\d+) (\d+) pf (0x[0-9a-f]+) (\d+)$/i
         p_f << l
       when /^#{pid} (\d+) (\d+) EXIT$/
         e << l
@@ -105,6 +109,8 @@ class TestMemSys < Test::Unit::TestCase
     assert(p_a.size >= p_f.size)
     # assert_equal(o_a.size, o_f.size, "object frees == object alloc") # core gc does not abide
     # assert_equal(p_a.size, p_f.size, "page frees == page alloc")
+  rescue
+    save ? ENV['RUBY_MEM_SYS_EVENT_LOG'] = save : ENV.delete('RUBY_MEM_SYS_EVENT_LOG')
   end
 end
 
