@@ -1,74 +1,67 @@
 require 'test/unit'
 require 'pp'
-require_relative 'test_mem_sys_base'
+# require_relative 'ruby/envutil'
 
-class TestMemSysEvent < TestMemSysBase
+class TestMemSysBase < Test::Unit::TestCase
+  MemSys = GC::MemSys
+  attr_reader :argv0
+  attr_reader :mem_sys, :mem_sys_name, :mem_sys_opts
+  DEFAULT_NAME = 'core'.freeze
+
   def initialize(*)
     super
+    @tempfiles = [ ]
+    @argv0 = MemSys.argv0 # HACK
+    @mem_sys = (ENV['RUBY_MEM_SYS'] || DEFAULT_NAME).dup.freeze
+    @mem_sys_name, @mem_sys_opts = @mem_sys.split(':', 2)
+    @mem_sys_opts ||= ''.freeze
+
+    @mem_sys_name.freeze
+    @mem_sys_opts.freeze
+    $stderr.puts "Running under RUBY_MEM_SYS=#{mem_sys.inspect} MemSys.name=#{MemSys.name.inspect} (supports #{MemSys.supported})" if $DEBUG
+    # $stderr.puts self.inspect
   end
 
-  def test_mem_sys_event_log
-    file = tempfile(['mem_sys_event_log', '.txt'])
-    args = [ argv0, '-e', 'puts (0..10).to_a.inspect' ]
-    pid = Kernel.fork do
-      with_ENV 'RUBY_MEM_SYS_EVENT_LOG' => file.path do
-        exec(*args)
-        raise "#{args.inspect} failed"
-      end
+  def tempfile(*args, &block)
+    require 'tempfile'
+    t = Tempfile.new(*args, &block)
+    @tempfiles << t unless block
+    t
+  end
+
+  def teardown
+    @tempfiles.each { | f | f.close! }
+  end
+
+  def with_ENV env = { }
+    save_ENV = { }
+    ENV.each do | k, v |
+      save_ENV[k.dup] = v.dup
     end
-    $stderr.puts "#{args * ' '} pid => #{pid}"
-    Process.waitpid(pid) or raise "failed?"
+    ENV.update(env)
 
-    e = Hash.new{ |h, k| h[k] = [ ] }
-    s = Stats.new
+    yield
 
-    contents = File.open(file.path) { |fh| fh.readlines }
-    lineno = 0
-    contents.each do | l |
-      lineno += 1
-      l.chomp!
-
-      case l
-      when /^#{pid} (\d+) (\d+) (oa|of|pa|pf) (0x[0-9a-f]+) (\d+)$/i
-        x = {
-          :event_id => $1.to_i,
-          :object_alloc_id => $2.to_i,
-          :tag => $3.to_sym,
-          :addr => $4,
-          :size => $5.to_i,
-          :line => l,
-        }
-        e[x[:tag]] << x
-        s.add_total!(:"#{x[:tag]}_size", x[:size])
-      when /^#{pid} (\d+) (\d+) EXIT$/
-        e[:EXIT] << l
+  ensure
+    current_ENV = { }
+    ENV.each do | k, v |
+      current_ENV[k.dup] = v.dup
+    end
+    current_ENV.each do | k, v |
+      if v = save_ENV[k]
+        ENV[k] = v
       else
-        raise "Invalid event at event log line #{lineno}: #{l.inspect}"
+        ENV.delete(k)
       end
-    end # each
-    if $DEBUG
-      pp [
-      MemSys.name,
-      :e_count, e.map { | k, v | [ k, v.size ] },
-         ]
-      s.display_totals!
     end
+  end
 
-    assert(lineno > 100)
-    assert(e[:oa].size >= e[:of].size)
-    assert(e[:pa].size >= e[:pf].size)
-    assert_equal(1, e[:EXIT].size)
-    case MemSys.name
-    when 'core'
-      assert_equal(0.0, s.stats(:of_size)[:sdv])
-    when 'malloc'
-      assert_equal(0, e[:pa].size)
-      assert_equal(0, e[:pf].size)
-      assert_equal(0, t[:pa])
-      assert_equal(0, t[:pf])
+  def run_with_mem_sys! name, *args
+    with_ENV 'RUBY_MEM_SYS' => name do
+      args.unshift(argv0)
+      $stderr.puts "\nrunning #{args.inspect} with RUBY_MEM_SYS=#{name.inspect}" if $DEBUG
+      system(*args) or raise "#{args.inspect} failed"
     end
-    # assert_equal(e[:oa].size, e[:of].size, "object frees == object alloc") # core gc does not abide
-    # assert_equal(e[:pa].size, e[:pf].size, "page frees == page alloc")
   end
 
   # Generic stats collector.
