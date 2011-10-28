@@ -342,13 +342,33 @@ static void event_log_finalizer_free(void *callback, void *func_data, void *addr
   fprintf(event_log, "%d %lu %lu ff %p %lu\n", (int) getpid(), event_id, object_alloc_id, addr, size);
 }
 
+static void event_log_close()
+{
+  if ( ! event_log ) return;
+  if ( event_log != stderr ) fclose(event_log);
+  event_log = 0;
+}
+
 static void event_log_at_exit(void *callback, void *func_data, void *addr, size_t size)
 {
   if ( ! event_log ) return;
   ++ event_id;
   fprintf(event_log, "%d %lu %lu EXIT\n", (int) getpid(), event_id, object_alloc_id);
-  if ( event_log != stderr ) fclose(event_log);
-  event_log = 0;
+  event_log_close();
+}
+
+static void rb_mem_sys_add_event_log_hooks()
+{
+  static int done;
+  if ( done ) return;
+  rb_mem_sys_add_callback(RB_MEM_SYS_EVENT_OBJECT_ALLOC, RB_MEM_SYS_EVENT_AFTER, event_log_object_alloc, 0);
+  rb_mem_sys_add_callback(RB_MEM_SYS_EVENT_OBJECT_FREE,  RB_MEM_SYS_EVENT_AFTER, event_log_object_free, 0);
+  rb_mem_sys_add_callback(RB_MEM_SYS_EVENT_PAGE_ALLOC,   RB_MEM_SYS_EVENT_AFTER, event_log_page_alloc, 0);
+  rb_mem_sys_add_callback(RB_MEM_SYS_EVENT_PAGE_FREE,    RB_MEM_SYS_EVENT_AFTER, event_log_page_free, 0);
+  rb_mem_sys_add_callback(RB_MEM_SYS_EVENT_FINALIZER_ALLOC,   RB_MEM_SYS_EVENT_AFTER, event_log_finalizer_alloc, 0);
+  rb_mem_sys_add_callback(RB_MEM_SYS_EVENT_FINALIZER_FREE,    RB_MEM_SYS_EVENT_AFTER, event_log_finalizer_free, 0);
+  rb_mem_sys_add_callback(RB_MEM_SYS_EVENT_AT_EXIT,      RB_MEM_SYS_EVENT_AFTER, event_log_at_exit, 0);
+  done = 1;
 }
 
 static void rb_mem_sys_event_log(const char *file)
@@ -366,13 +386,7 @@ static void rb_mem_sys_event_log(const char *file)
       fprintf(stderr, "ruby: Cannot open RUBY_MEM_SYS_EVENT_LOG=%s\n", event_log_file);
       return;
     }
-    rb_mem_sys_add_callback(RB_MEM_SYS_EVENT_OBJECT_ALLOC, RB_MEM_SYS_EVENT_AFTER, event_log_object_alloc, 0);
-    rb_mem_sys_add_callback(RB_MEM_SYS_EVENT_OBJECT_FREE,  RB_MEM_SYS_EVENT_AFTER, event_log_object_free, 0);
-    rb_mem_sys_add_callback(RB_MEM_SYS_EVENT_PAGE_ALLOC,   RB_MEM_SYS_EVENT_AFTER, event_log_page_alloc, 0);
-    rb_mem_sys_add_callback(RB_MEM_SYS_EVENT_PAGE_FREE,    RB_MEM_SYS_EVENT_AFTER, event_log_page_free, 0);
-    rb_mem_sys_add_callback(RB_MEM_SYS_EVENT_FINALIZER_ALLOC,   RB_MEM_SYS_EVENT_AFTER, event_log_finalizer_alloc, 0);
-    rb_mem_sys_add_callback(RB_MEM_SYS_EVENT_FINALIZER_FREE,    RB_MEM_SYS_EVENT_AFTER, event_log_finalizer_free, 0);
-    rb_mem_sys_add_callback(RB_MEM_SYS_EVENT_AT_EXIT,      RB_MEM_SYS_EVENT_AFTER, event_log_at_exit, 0);
+    rb_mem_sys_add_event_log_hooks();
   }
 }
 
