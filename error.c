@@ -477,6 +477,7 @@ rb_check_typeddata(VALUE obj, const rb_data_type_t *data_type)
 }
 
 /* exception classes */
+VALUE rb_mThrowable;
 VALUE rb_eException;
 VALUE rb_eSystemExit;
 VALUE rb_eInterrupt;
@@ -1646,7 +1647,9 @@ syserr_eqq(VALUE self, VALUE exc)
 void
 Init_Exception(void)
 {
-    rb_eException   = rb_define_class("Exception", rb_cObject);
+    rb_mThrowable =
+    rb_eException   = rb_define_module("Throwable");
+    // rb_eException   = rb_define_class("Exception", rb_cObject);
     rb_define_singleton_method(rb_eException, "exception", rb_class_new_instance, -1);
     rb_define_method(rb_eException, "exception", exc_exception, -1);
     rb_define_method(rb_eException, "initialize", exc_initialize, -1);
@@ -1656,6 +1659,10 @@ Init_Exception(void)
     rb_define_method(rb_eException, "inspect", exc_inspect, 0);
     rb_define_method(rb_eException, "backtrace", exc_backtrace, 0);
     rb_define_method(rb_eException, "set_backtrace", exc_set_backtrace, 1);
+
+    rb_eException   = rb_define_class("Exception", rb_cObject);
+    rb_define_singleton_method(rb_eException, "exception", rb_class_new_instance, -1);
+    rb_include_module(rb_eException, rb_mThrowable);
 
     rb_eSystemExit  = rb_define_class("SystemExit", rb_eException);
     rb_define_method(rb_eSystemExit, "initialize", exit_initialize, -1);
