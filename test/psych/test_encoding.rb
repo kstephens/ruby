@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-require_relative 'helper'
+require 'psych/helper'
 
 module Psych
   class TestEncoding < TestCase
@@ -38,6 +38,22 @@ module Psych
         @emitter.alias 'ドラえもん'.encode('EUC-JP')
       end
       assert_match(/alias value/, e.message)
+    end
+
+    def test_to_yaml_is_valid
+      ext_before = Encoding.default_external
+      int_before = Encoding.default_internal
+
+      Encoding.default_external = Encoding::US_ASCII
+      Encoding.default_internal = nil
+
+      s = "こんにちは！"
+      # If no encoding is specified, use UTF-8
+      assert_equal Encoding::UTF_8, Psych.dump(s).encoding
+      assert_equal s, Psych.load(Psych.dump(s))
+    ensure
+      Encoding.default_external = ext_before
+      Encoding.default_internal = int_before
     end
 
     def test_start_mapping

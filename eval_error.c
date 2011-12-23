@@ -16,7 +16,7 @@ warn_printf(const char *fmt, ...)
 }
 
 #define warn_print(x) rb_write_error(x)
-#define warn_print2(x,l) rb_write_error2(x,l)
+#define warn_print2(x,l) rb_write_error2((x),(l))
 
 static void
 error_pos(void)
@@ -37,8 +37,6 @@ error_pos(void)
 	}
     }
 }
-
-VALUE rb_check_backtrace(VALUE);
 
 static VALUE
 get_backtrace(VALUE info)
@@ -204,8 +202,17 @@ rb_print_undef(VALUE klass, ID id, int scope)
     }
     rb_name_error(id, "undefined%s method `%s' for %s `%s'", v,
 		  rb_id2name(id),
-		  (TYPE(klass) == T_MODULE) ? "module" : "class",
+		  (RB_TYPE_P(klass, T_MODULE)) ? "module" : "class",
 		  rb_class2name(klass));
+}
+
+void
+rb_print_undef_str(VALUE klass, VALUE name)
+{
+    rb_name_error_str(name, "undefined method `%s' for %s `%s'",
+		      RSTRING_PTR(name),
+		      (RB_TYPE_P(klass, T_MODULE)) ? "module" : "class",
+		      rb_class2name(klass));
 }
 
 static int

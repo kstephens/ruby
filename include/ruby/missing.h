@@ -19,9 +19,7 @@ extern "C" {
 #endif
 
 #include "ruby/config.h"
-#if defined(HAVE_STDDEF_H)
-#  include <stddef.h>
-#endif
+#include <stddef.h>
 #ifdef RUBY_EXTCONF_H
 #include RUBY_EXTCONF_H
 #endif
@@ -53,6 +51,11 @@ struct timezone {
 };
 #endif
 
+#if defined(HAVE___SYSCALL) && (defined(__APPLE__) || defined(__OpenBSD__))
+/* Mac OS X and OpenBSD have __syscall but don't define it in headers */
+off_t __syscall(quad_t number, ...);
+#endif
+
 #ifdef RUBY_EXPORT
 #undef RUBY_EXTERN
 #endif
@@ -80,6 +83,10 @@ RUBY_EXTERN int dup2(int, int);
 
 #ifndef HAVE_EACCESS
 RUBY_EXTERN int eaccess(const char*, int);
+#endif
+
+#ifndef HAVE_ROUND
+RUBY_EXTERN double round(double);	/* numeric.c */
 #endif
 
 #ifndef HAVE_FINITE
@@ -117,9 +124,35 @@ RUBY_EXTERN double lgamma_r(double, int *);
 RUBY_EXTERN double cbrt(double);
 #endif
 
+#if !defined(INFINITY) || !defined(NAN)
+union bytesequence4_or_float {
+  unsigned char bytesequence[4];
+  float float_value;
+};
+#endif
+
+#ifdef INFINITY
+# define HAVE_INFINITY
+#else
+/** @internal */
+RUBY_EXTERN const union bytesequence4_or_float rb_infinity;
+# define INFINITY (rb_infinity.float_value)
+#endif
+
+#ifdef NAN
+# define HAVE_NAN
+#else
+/** @internal */
+RUBY_EXTERN const union bytesequence4_or_float rb_nan;
+# define NAN (rb_nan.float_value)
+#endif
+
 #ifndef isinf
 # ifndef HAVE_ISINF
 #  if defined(HAVE_FINITE) && defined(HAVE_ISNAN)
+#    ifdef HAVE_IEEEFP_H
+#    include <ieeefp.h>
+#    endif
 #  define isinf(x) (!finite(x) && !isnan(x))
 #  else
 RUBY_EXTERN int isinf(double);
@@ -191,6 +224,10 @@ RUBY_EXTERN int ruby_getpeername(int, struct sockaddr *, socklen_t *);
 RUBY_EXTERN int ruby_getsockname(int, struct sockaddr *, socklen_t *);
 RUBY_EXTERN int ruby_shutdown(int, int);
 RUBY_EXTERN int ruby_close(int);
+#endif
+
+#ifndef HAVE_SETPROCTITLE
+RUBY_EXTERN void setproctitle(const char *fmt, ...);
 #endif
 
 #if defined __GNUC__ && __GNUC__ >= 4

@@ -1,5 +1,6 @@
 require 'test/unit'
 require 'continuation'
+require 'stringio'
 
 class TestEnumerable < Test::Unit::TestCase
   def setup
@@ -20,6 +21,20 @@ class TestEnumerable < Test::Unit::TestCase
 
   def teardown
     $VERBOSE = @verbose
+  end
+
+  def assert_not_warn
+    begin
+      org_stderr = $stderr
+      v = $VERBOSE
+      $stderr = StringIO.new(warn = '')
+      $VERBOSE = true
+      yield
+    ensure
+      $stderr = org_stderr
+      $VERBOSE = v
+    end
+    assert_equal("", warn)
   end
 
   def test_grep
@@ -102,6 +117,7 @@ class TestEnumerable < Test::Unit::TestCase
 
   def test_sort_by
     assert_equal([3, 2, 2, 1, 1], @obj.sort_by {|x| -x })
+    assert_equal((1..300).to_a.reverse, (1..300).sort_by {|x| -x })
   end
 
   def test_all
@@ -382,6 +398,7 @@ class TestEnumerable < Test::Unit::TestCase
     ss = %w[abc defg h ijk l mno pqr st u vw xy z]
     assert_equal([%w[abc defg h], %w[ijk l], %w[mno], %w[pqr st u vw xy z]],
                  ss.slice_before(/\A...\z/).to_a)
+    assert_not_warn{ss.slice_before(/\A...\z/).to_a}
   end
 
 end

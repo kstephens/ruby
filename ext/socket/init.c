@@ -48,6 +48,7 @@ rsock_init_sock(VALUE sock, int fd)
 
     if (fstat(fd, &sbuf) < 0)
         rb_sys_fail(0);
+    rb_update_max_fd(fd);
     if (!S_ISSOCK(sbuf.st_mode))
         rb_raise(rb_eArgError, "not a socket file descriptor");
 #else
@@ -129,7 +130,7 @@ rsock_s_recvfrom(VALUE sock, int argc, VALUE *argv, enum sock_recv_type from)
 
     while (rb_io_check_closed(fptr),
 	   rb_thread_wait_fd(arg.fd),
-	   (slen = BLOCKING_REGION(recvfrom_blocking, &arg)) < 0) {
+	   (slen = BLOCKING_REGION_FD(recvfrom_blocking, &arg)) < 0) {
         if (!rb_io_wait_readable(fptr->fd)) {
             rb_sys_fail("recvfrom(2)");
         }
@@ -238,90 +239,96 @@ rsock_s_recvfrom_nonblock(VALUE sock, int argc, VALUE *argv, enum sock_recv_type
     return rb_assoc_new(str, addr);
 }
 
+static int
+rsock_socket0(int domain, int type, int proto)
+{
+    int ret;
+
+#ifdef SOCK_CLOEXEC
+    static int try_sock_cloexec = 1;
+    if (try_sock_cloexec) {
+        ret = socket(domain, type|SOCK_CLOEXEC, proto);
+        if (ret == -1 && errno == EINVAL) {
+            /* SOCK_CLOEXEC is available since Linux 2.6.27.  Linux 2.6.18 fails with EINVAL */
+            ret = socket(domain, type, proto);
+            if (ret != -1) {
+                try_sock_cloexec = 0;
+            }
+        }
+    }
+    else {
+        ret = socket(domain, type, proto);
+    }
+#else
+    ret = socket(domain, type, proto);
+#endif
+    if (ret == -1)
+        return -1;
+
+    rb_fd_fix_cloexec(ret);
+
+    return ret;
+
+}
+
 int
 rsock_socket(int domain, int type, int proto)
 {
     int fd;
 
-    fd = socket(domain, type, proto);
+    fd = rsock_socket0(domain, type, proto);
     if (fd < 0) {
-	if (errno == EMFILE || errno == ENFILE) {
-	    rb_gc();
-	    fd = socket(domain, type, proto);
-	}
+       if (errno == EMFILE || errno == ENFILE) {
+           rb_gc();
+           fd = rsock_socket0(domain, type, proto);
+       }
     }
+    if (0 <= fd)
+        rb_update_max_fd(fd);
     return fd;
 }
 
 static int
-wait_connectable0(int fd, rb_fdset_t *fds_w, rb_fdset_t *fds_e)
+wait_connectable(int fd)
 {
     int sockerr;
     socklen_t sockerrlen;
+    int revents;
+    int ret;
 
     for (;;) {
-	rb_fd_zero(fds_w);
-	rb_fd_zero(fds_e);
+	/*
+	 * Stevens book says, succuessful finish turn on RB_WAITFD_OUT and
+	 * failure finish turn on both RB_WAITFD_IN and RB_WAITFD_OUT.
+	 */
+	revents = rb_wait_for_single_fd(fd, RB_WAITFD_IN|RB_WAITFD_OUT, NULL);
 
-	rb_fd_set(fd, fds_w);
-	rb_fd_set(fd, fds_e);
-
-	rb_thread_select(fd+1, 0, rb_fd_ptr(fds_w), rb_fd_ptr(fds_e), 0);
-
-	if (rb_fd_isset(fd, fds_w)) {
-	    return 0;
-	}
-	else if (rb_fd_isset(fd, fds_e)) {
+	if (revents & (RB_WAITFD_IN|RB_WAITFD_OUT)) {
 	    sockerrlen = (socklen_t)sizeof(sockerr);
-	    if (getsockopt(fd, SOL_SOCKET, SO_ERROR, (void *)&sockerr,
-			   &sockerrlen) == 0) {
-		if (sockerr == 0)
-		    continue;	/* workaround for winsock */
-		errno = sockerr;
-	    }
-	    return -1;
+	    ret = getsockopt(fd, SOL_SOCKET, SO_ERROR, (void *)&sockerr, &sockerrlen);
+
+	    /*
+	     * Solaris getsockopt(SO_ERROR) return -1 and set errno
+	     * in getsockopt(). Let's return immediately.
+	     */
+	    if (ret < 0)
+		break;
+	    if (sockerr == 0)
+		continue;	/* workaround for winsock */
+
+	    /* BSD and Linux use sockerr. */
+	    errno = sockerr;
+	    ret = -1;
+	    break;
+	}
+
+	if ((revents & (RB_WAITFD_IN|RB_WAITFD_OUT)) == RB_WAITFD_OUT) {
+	    ret = 0;
+	    break;
 	}
     }
-}
 
-struct wait_connectable_arg {
-    int fd;
-    rb_fdset_t fds_w;
-    rb_fdset_t fds_e;
-};
-
-#ifdef HAVE_RB_FD_INIT
-static VALUE
-try_wait_connectable(VALUE arg)
-{
-    struct wait_connectable_arg *p = (struct wait_connectable_arg *)arg;
-    return (VALUE)wait_connectable0(p->fd, &p->fds_w, &p->fds_e);
-}
-
-static VALUE
-wait_connectable_ensure(VALUE arg)
-{
-    struct wait_connectable_arg *p = (struct wait_connectable_arg *)arg;
-    rb_fd_term(&p->fds_w);
-    rb_fd_term(&p->fds_e);
-    return Qnil;
-}
-#endif
-
-static int
-wait_connectable(int fd)
-{
-    struct wait_connectable_arg arg;
-
-    rb_fd_init(&arg.fds_w);
-    rb_fd_init(&arg.fds_e);
-#ifdef HAVE_RB_FD_INIT
-    arg.fd = fd;
-    return (int)rb_ensure(try_wait_connectable, (VALUE)&arg,
-			  wait_connectable_ensure,(VALUE)&arg);
-#else
-    return wait_connectable0(fd, &arg.fds_w, &arg.fds_e);
-#endif
+    return ret;
 }
 
 #ifdef __CYGWIN__
@@ -380,9 +387,15 @@ rsock_connect(int fd, const struct sockaddr *sockaddr, int len, int socks)
     if (socks) func = socks_connect_blocking;
 #endif
     for (;;) {
-	status = (int)BLOCKING_REGION(func, &arg);
+	status = (int)BLOCKING_REGION_FD(func, &arg);
 	if (status < 0) {
 	    switch (errno) {
+	      case EINTR:
+#if defined(ERESTART)
+	      case ERESTART:
+#endif
+		continue;
+
 	      case EAGAIN:
 #ifdef EINPROGRESS
 	      case EINPROGRESS:
@@ -463,6 +476,37 @@ make_fd_nonblock(int fd)
     }
 }
 
+static int
+cloexec_accept(int socket, struct sockaddr *address, socklen_t *address_len)
+{
+    int ret;
+#ifdef HAVE_ACCEPT4
+    static int try_accept4 = 1;
+    if (try_accept4) {
+        ret = accept4(socket, address, address_len, SOCK_CLOEXEC);
+        /* accept4 is available since Linux 2.6.28, glibc 2.10. */
+        if (ret != -1) {
+            if (ret <= 2)
+                rb_maygvl_fd_fix_cloexec(ret);
+            return ret;
+        }
+        if (errno == ENOSYS) {
+            try_accept4 = 0;
+            ret = accept(socket, address, address_len);
+        }
+    }
+    else {
+        ret = accept(socket, address, address_len);
+    }
+#else
+    ret = accept(socket, address, address_len);
+#endif
+    if (ret == -1) return -1;
+    rb_maygvl_fd_fix_cloexec(ret);
+    return ret;
+}
+
+
 VALUE
 rsock_s_accept_nonblock(VALUE klass, rb_io_t *fptr, struct sockaddr *sockaddr, socklen_t *len)
 {
@@ -470,7 +514,7 @@ rsock_s_accept_nonblock(VALUE klass, rb_io_t *fptr, struct sockaddr *sockaddr, s
 
     rb_secure(3);
     rb_io_set_nonblock(fptr);
-    fd2 = accept(fptr->fd, (struct sockaddr*)sockaddr, len);
+    fd2 = cloexec_accept(fptr->fd, (struct sockaddr*)sockaddr, len);
     if (fd2 < 0) {
 	switch (errno) {
 	  case EAGAIN:
@@ -485,6 +529,7 @@ rsock_s_accept_nonblock(VALUE klass, rb_io_t *fptr, struct sockaddr *sockaddr, s
 	}
         rb_sys_fail("accept(2)");
     }
+    rb_update_max_fd(fd2);
     make_fd_nonblock(fd2);
     return rsock_init_sock(rb_obj_alloc(klass), fd2);
 }
@@ -499,7 +544,7 @@ static VALUE
 accept_blocking(void *data)
 {
     struct accept_arg *arg = data;
-    return (VALUE)accept(arg->fd, arg->sockaddr, arg->len);
+    return (VALUE)cloexec_accept(arg->fd, arg->sockaddr, arg->len);
 }
 
 VALUE
@@ -515,7 +560,7 @@ rsock_s_accept(VALUE klass, int fd, struct sockaddr *sockaddr, socklen_t *len)
     arg.len = len;
   retry:
     rb_thread_wait_fd(fd);
-    fd2 = (int)BLOCKING_REGION(accept_blocking, &arg);
+    fd2 = (int)BLOCKING_REGION_FD(accept_blocking, &arg);
     if (fd2 < 0) {
 	switch (errno) {
 	  case EMFILE:
@@ -531,6 +576,7 @@ rsock_s_accept(VALUE klass, int fd, struct sockaddr *sockaddr, socklen_t *len)
 	}
 	rb_sys_fail(0);
     }
+    rb_update_max_fd(fd2);
     if (!klass) return INT2NUM(fd2);
     return rsock_init_sock(rb_obj_alloc(klass), fd2);
 }
@@ -548,12 +594,12 @@ rsock_getfamily(int sockfd)
     return ss.ss_family;
 }
 
-/*
- * SocketError is the error class for socket.
- */
 void
 rsock_init_socket_init()
 {
+    /*
+     * SocketError is the error class for socket.
+     */
     rb_eSocket = rb_define_class("SocketError", rb_eStandardError);
     rsock_init_ipsocket();
     rsock_init_tcpsocket();

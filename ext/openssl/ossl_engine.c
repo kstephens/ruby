@@ -13,20 +13,20 @@
 #if defined(OSSL_ENGINE_ENABLED)
 
 #define WrapEngine(klass, obj, engine) do { \
-    if (!engine) { \
+    if (!(engine)) { \
 	ossl_raise(rb_eRuntimeError, "ENGINE wasn't initialized."); \
     } \
-    obj = Data_Wrap_Struct(klass, 0, ENGINE_free, engine); \
+    (obj) = Data_Wrap_Struct((klass), 0, ENGINE_free, (engine)); \
 } while(0)
 #define GetEngine(obj, engine) do { \
-    Data_Get_Struct(obj, ENGINE, engine); \
-    if (!engine) { \
+    Data_Get_Struct((obj), ENGINE, (engine)); \
+    if (!(engine)) { \
         ossl_raise(rb_eRuntimeError, "ENGINE wasn't initialized."); \
     } \
 } while (0)
 #define SafeGetEngine(obj, engine) do { \
-    OSSL_Check_Kind(obj, cEngine); \
-    GetPKCS7(obj, engine); \
+    OSSL_Check_Kind((obj), cEngine); \
+    GetPKCS7((obj), (engine)); \
 } while (0)
 
 /*
@@ -64,29 +64,47 @@ ossl_engine_s_load(int argc, VALUE *argv, VALUE klass)
 #if HAVE_ENGINE_LOAD_DYNAMIC
     OSSL_ENGINE_LOAD_IF_MATCH(dynamic);
 #endif
-#if HAVE_ENGINE_LOAD_CSWIFT
-    OSSL_ENGINE_LOAD_IF_MATCH(cswift);
-#endif
-#if HAVE_ENGINE_LOAD_CHIL
-    OSSL_ENGINE_LOAD_IF_MATCH(chil);
-#endif
-#if HAVE_ENGINE_LOAD_ATALLA
-    OSSL_ENGINE_LOAD_IF_MATCH(atalla);
-#endif
-#if HAVE_ENGINE_LOAD_NURON
-    OSSL_ENGINE_LOAD_IF_MATCH(nuron);
-#endif
-#if HAVE_ENGINE_LOAD_UBSEC
-    OSSL_ENGINE_LOAD_IF_MATCH(ubsec);
+#if HAVE_ENGINE_LOAD_4758CCA
+    OSSL_ENGINE_LOAD_IF_MATCH(4758cca);
 #endif
 #if HAVE_ENGINE_LOAD_AEP
     OSSL_ENGINE_LOAD_IF_MATCH(aep);
 #endif
+#if HAVE_ENGINE_LOAD_ATALLA
+    OSSL_ENGINE_LOAD_IF_MATCH(atalla);
+#endif
+#if HAVE_ENGINE_LOAD_CHIL
+    OSSL_ENGINE_LOAD_IF_MATCH(chil);
+#endif
+#if HAVE_ENGINE_LOAD_CSWIFT
+    OSSL_ENGINE_LOAD_IF_MATCH(cswift);
+#endif
+#if HAVE_ENGINE_LOAD_NURON
+    OSSL_ENGINE_LOAD_IF_MATCH(nuron);
+#endif
 #if HAVE_ENGINE_LOAD_SUREWARE
     OSSL_ENGINE_LOAD_IF_MATCH(sureware);
 #endif
-#if HAVE_ENGINE_LOAD_4758CCA
-    OSSL_ENGINE_LOAD_IF_MATCH(4758cca);
+#if HAVE_ENGINE_LOAD_UBSEC
+    OSSL_ENGINE_LOAD_IF_MATCH(ubsec);
+#endif
+#if HAVE_ENGINE_LOAD_PADLOCK
+    OSSL_ENGINE_LOAD_IF_MATCH(padlock);
+#endif
+#if HAVE_ENGINE_LOAD_CAPI
+    OSSL_ENGINE_LOAD_IF_MATCH(capi);
+#endif
+#if HAVE_ENGINE_LOAD_GMP
+    OSSL_ENGINE_LOAD_IF_MATCH(gmp);
+#endif
+#if HAVE_ENGINE_LOAD_GOST
+    OSSL_ENGINE_LOAD_IF_MATCH(gost);
+#endif
+#if HAVE_ENGINE_LOAD_CRYPTODEV
+    OSSL_ENGINE_LOAD_IF_MATCH(cryptodev);
+#endif
+#if HAVE_ENGINE_LOAD_AESNI
+    OSSL_ENGINE_LOAD_IF_MATCH(aesni);
 #endif
 #endif
 #ifdef HAVE_ENGINE_LOAD_OPENBSD_DEV_CRYPTO
@@ -115,7 +133,11 @@ ossl_engine_s_engines(VALUE klass)
 
     ary = rb_ary_new();
     for(e = ENGINE_get_first(); e; e = ENGINE_get_next(e)){
-        WrapEngine(klass, obj, e);
+	/* Need a ref count of two here because of ENGINE_free being
+	 * called internally by OpenSSL when moving to the next ENGINE
+	 * and by us when releasing the ENGINE reference */
+	ENGINE_up_ref(e);
+	WrapEngine(klass, obj, e);
         rb_ary_push(ary, obj);
     }
 

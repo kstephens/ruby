@@ -4,6 +4,7 @@ VALUE cPsychParser;
 VALUE ePsychSyntaxError;
 
 static ID id_read;
+static ID id_path;
 static ID id_empty;
 static ID id_start_stream;
 static ID id_end_stream;
@@ -18,9 +19,9 @@ static ID id_end_mapping;
 
 #define PSYCH_TRANSCODE(_str, _yaml_enc, _internal_enc) \
   do { \
-    rb_enc_associate_index(_str, _yaml_enc); \
+    rb_enc_associate_index((_str), (_yaml_enc)); \
     if(_internal_enc) \
-      _str = rb_str_export_to_enc(_str, _internal_enc); \
+      (_str) = rb_str_export_to_enc((_str), (_internal_enc)); \
   } while (0)
 
 static int io_reader(void * data, unsigned char *buf, size_t size, size_t *read)
@@ -58,6 +59,22 @@ static VALUE allocate(VALUE klass)
     return Data_Wrap_Struct(klass, 0, dealloc, parser);
 }
 
+static VALUE make_exception(yaml_parser_t * parser, VALUE path)
+{
+    size_t line, column;
+
+    line = parser->context_mark.line + 1;
+    column = parser->context_mark.column + 1;
+
+    return rb_funcall(ePsychSyntaxError, rb_intern("new"), 6,
+	    path,
+	    INT2NUM(line),
+	    INT2NUM(column),
+	    INT2NUM(parser->problem_offset),
+	    parser->problem ? rb_usascii_str_new2(parser->problem) : Qnil,
+	    parser->context ? rb_usascii_str_new2(parser->context) : Qnil);
+}
+
 /*
  * call-seq:
  *    parser.parse(yaml)
@@ -67,21 +84,33 @@ static VALUE allocate(VALUE klass)
  *
  * See Psych::Parser and Psych::Parser#handler
  */
-static VALUE parse(VALUE self, VALUE yaml)
+static VALUE parse(int argc, VALUE *argv, VALUE self)
 {
+    VALUE yaml, path;
     yaml_parser_t * parser;
     yaml_event_t event;
     int done = 0;
+    int tainted = 0;
 #ifdef HAVE_RUBY_ENCODING_H
     int encoding = rb_utf8_encindex();
     rb_encoding * internal_enc = rb_default_internal_encoding();
 #endif
     VALUE handler = rb_iv_get(self, "@handler");
 
+    if (rb_scan_args(argc, argv, "11", &yaml, &path) == 1) {
+	if(rb_respond_to(yaml, id_path))
+	    path = rb_funcall(yaml, id_path, 0);
+	else
+	    path = rb_str_new2("<unknown>");
+    }
+
     Data_Get_Struct(self, yaml_parser_t, parser);
+
+    if (OBJ_TAINTED(yaml)) tainted = 1;
 
     if(rb_respond_to(yaml, id_read)) {
 	yaml_parser_set_input(parser, io_reader, (void *)yaml);
+	if (RTEST(rb_obj_is_kind_of(yaml, rb_cIO))) tainted = 1;
     } else {
 	StringValue(yaml);
 	yaml_parser_set_input_string(
@@ -93,11 +122,13 @@ static VALUE parse(VALUE self, VALUE yaml)
 
     while(!done) {
 	if(!yaml_parser_parse(parser, &event)) {
-	    size_t line   = parser->mark.line;
-	    size_t column = parser->mark.column;
+	    VALUE exception;
 
-	    rb_raise(ePsychSyntaxError, "couldn't parse YAML at line %d column %d",
-		    (int)line, (int)column);
+	    exception = make_exception(parser, path);
+	    yaml_parser_delete(parser);
+	    yaml_parser_initialize(parser);
+
+	    rb_exc_raise(exception);
 	}
 
 	switch(event.type) {
@@ -129,6 +160,7 @@ static VALUE parse(VALUE self, VALUE yaml)
 			VALUE prefix = Qnil;
 			if(start->handle) {
 			    handle = rb_str_new2((const char *)start->handle);
+			    if (tainted) OBJ_TAINT(handle);
 #ifdef HAVE_RUBY_ENCODING_H
 			    PSYCH_TRANSCODE(handle, encoding, internal_enc);
 #endif
@@ -136,6 +168,7 @@ static VALUE parse(VALUE self, VALUE yaml)
 
 			if(start->prefix) {
 			    prefix = rb_str_new2((const char *)start->prefix);
+			    if (tainted) OBJ_TAINT(prefix);
 #ifdef HAVE_RUBY_ENCODING_H
 			    PSYCH_TRANSCODE(prefix, encoding, internal_enc);
 #endif
@@ -160,6 +193,7 @@ static VALUE parse(VALUE self, VALUE yaml)
 		VALUE alias = Qnil;
 		if(event.data.alias.anchor) {
 		    alias = rb_str_new2((const char *)event.data.alias.anchor);
+		    if (tainted) OBJ_TAINT(alias);
 #ifdef HAVE_RUBY_ENCODING_H
 		    PSYCH_TRANSCODE(alias, encoding, internal_enc);
 #endif
@@ -177,6 +211,7 @@ static VALUE parse(VALUE self, VALUE yaml)
 		    (const char *)event.data.scalar.value,
 		    (long)event.data.scalar.length
 		    );
+		if (tainted) OBJ_TAINT(val);
 
 #ifdef HAVE_RUBY_ENCODING_H
 		PSYCH_TRANSCODE(val, encoding, internal_enc);
@@ -184,6 +219,7 @@ static VALUE parse(VALUE self, VALUE yaml)
 
 		if(event.data.scalar.anchor) {
 		    anchor = rb_str_new2((const char *)event.data.scalar.anchor);
+		    if (tainted) OBJ_TAINT(anchor);
 #ifdef HAVE_RUBY_ENCODING_H
 		    PSYCH_TRANSCODE(anchor, encoding, internal_enc);
 #endif
@@ -191,6 +227,7 @@ static VALUE parse(VALUE self, VALUE yaml)
 
 		if(event.data.scalar.tag) {
 		    tag = rb_str_new2((const char *)event.data.scalar.tag);
+		    if (tainted) OBJ_TAINT(tag);
 #ifdef HAVE_RUBY_ENCODING_H
 		    PSYCH_TRANSCODE(tag, encoding, internal_enc);
 #endif
@@ -215,6 +252,7 @@ static VALUE parse(VALUE self, VALUE yaml)
 		VALUE implicit, style;
 		if(event.data.sequence_start.anchor) {
 		    anchor = rb_str_new2((const char *)event.data.sequence_start.anchor);
+		    if (tainted) OBJ_TAINT(anchor);
 #ifdef HAVE_RUBY_ENCODING_H
 		    PSYCH_TRANSCODE(anchor, encoding, internal_enc);
 #endif
@@ -223,6 +261,7 @@ static VALUE parse(VALUE self, VALUE yaml)
 		tag = Qnil;
 		if(event.data.sequence_start.tag) {
 		    tag = rb_str_new2((const char *)event.data.sequence_start.tag);
+		    if (tainted) OBJ_TAINT(tag);
 #ifdef HAVE_RUBY_ENCODING_H
 		    PSYCH_TRANSCODE(tag, encoding, internal_enc);
 #endif
@@ -247,6 +286,7 @@ static VALUE parse(VALUE self, VALUE yaml)
 		VALUE implicit, style;
 		if(event.data.mapping_start.anchor) {
 		    anchor = rb_str_new2((const char *)event.data.mapping_start.anchor);
+		    if (tainted) OBJ_TAINT(anchor);
 #ifdef HAVE_RUBY_ENCODING_H
 		    PSYCH_TRANSCODE(anchor, encoding, internal_enc);
 #endif
@@ -254,6 +294,7 @@ static VALUE parse(VALUE self, VALUE yaml)
 
 		if(event.data.mapping_start.tag) {
 		    tag = rb_str_new2((const char *)event.data.mapping_start.tag);
+		    if (tainted) OBJ_TAINT(tag);
 #ifdef HAVE_RUBY_ENCODING_H
 		    PSYCH_TRANSCODE(tag, encoding, internal_enc);
 #endif
@@ -279,6 +320,7 @@ static VALUE parse(VALUE self, VALUE yaml)
 	    done = 1;
 	    break;
 	}
+	yaml_event_delete(&event);
     }
 
     return self;
@@ -307,6 +349,28 @@ static VALUE set_external_encoding(VALUE self, VALUE encoding)
     return encoding;
 }
 
+/*
+ * call-seq:
+ *    parser.mark # => #<Psych::Parser::Mark>
+ *
+ * Returns a Psych::Parser::Mark object that contains line, column, and index
+ * information.
+ */
+static VALUE mark(VALUE self)
+{
+    VALUE mark_klass;
+    VALUE args[3];
+    yaml_parser_t * parser;
+
+    Data_Get_Struct(self, yaml_parser_t, parser);
+    mark_klass = rb_const_get_at(cPsychParser, rb_intern("Mark"));
+    args[0] = INT2NUM(parser->mark.index);
+    args[1] = INT2NUM(parser->mark.line);
+    args[2] = INT2NUM(parser->mark.column);
+
+    return rb_class_new_instance(3, args, mark_klass);
+}
+
 void Init_psych_parser()
 {
 #if 0
@@ -328,12 +392,15 @@ void Init_psych_parser()
     /* UTF-16-BE Encoding with BOM */
     rb_define_const(cPsychParser, "UTF16BE", INT2NUM(YAML_UTF16BE_ENCODING));
 
+    rb_require("psych/syntax_error");
     ePsychSyntaxError = rb_define_class_under(mPsych, "SyntaxError", rb_eSyntaxError);
 
-    rb_define_method(cPsychParser, "parse", parse, 1);
+    rb_define_method(cPsychParser, "parse", parse, -1);
+    rb_define_method(cPsychParser, "mark", mark, 0);
     rb_define_method(cPsychParser, "external_encoding=", set_external_encoding, 1);
 
     id_read           = rb_intern("read");
+    id_path           = rb_intern("path");
     id_empty          = rb_intern("empty");
     id_start_stream   = rb_intern("start_stream");
     id_end_stream     = rb_intern("end_stream");

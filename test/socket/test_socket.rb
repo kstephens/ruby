@@ -1,14 +1,29 @@
 begin
   require "socket"
   require "tmpdir"
+  require "fcntl"
   require "test/unit"
 rescue LoadError
 end
 
 class TestSocket < Test::Unit::TestCase
   def test_socket_new
-    s = Socket.new(:INET, :STREAM)
-    assert_kind_of(Socket, s)
+    begin
+      s = Socket.new(:INET, :STREAM)
+      assert_kind_of(Socket, s)
+    ensure
+      s.close
+    end
+  end
+
+  def test_socket_new_cloexec
+    return unless defined? Fcntl::FD_CLOEXEC
+    begin
+      s = Socket.new(:INET, :STREAM)
+      assert(s.close_on_exec?)
+    ensure
+      s.close
+    end
   end
 
   def test_unpack_sockaddr
@@ -99,17 +114,37 @@ class TestSocket < Test::Unit::TestCase
     }
   end
 
+  def test_tcp_cloexec
+    return unless defined? Fcntl::FD_CLOEXEC
+    TCPServer.open(0) {|serv|
+      addr = serv.connect_address
+      addr.connect {|s1|
+        s2 = serv.accept
+        begin
+          assert(s2.close_on_exec?)
+        ensure
+          s2.close
+        end
+      }
+
+    }
+  end
+
   def random_port
     # IANA suggests dynamic port for 49152 to 65535
     # http://www.iana.org/assignments/port-numbers
     49152 + rand(65535-49152+1)
   end
 
+  def errors_addrinuse
+    [Errno::EADDRINUSE]
+  end
+
   def test_tcp_server_sockets
     port = random_port
     begin
       sockets = Socket.tcp_server_sockets(port)
-    rescue Errno::EADDRINUSE
+    rescue *errors_addrinuse
       return # not test failure
     end
     begin
@@ -151,6 +186,7 @@ class TestSocket < Test::Unit::TestCase
               assert(s2raddr.to_sockaddr.empty? ||
                      s1laddr.to_sockaddr.empty? ||
                      s2raddr.unix_path == s1laddr.unix_path)
+              assert(s2.close_on_exec?)
             ensure
               s2.close
             end
@@ -406,4 +442,52 @@ class TestSocket < Test::Unit::TestCase
     assert_equal(stamp.data[-8,8].unpack("Q")[0], t.subsec * 2**64)
   end
 
+  def test_closed_read
+    require 'timeout'
+    require 'socket'
+    bug4390 = '[ruby-core:35203]'
+    server = TCPServer.new("localhost", 0)
+    serv_thread = Thread.new {server.accept}
+    begin sleep(0.1) end until serv_thread.stop?
+    sock = TCPSocket.new("localhost", server.addr[1])
+    client_thread = Thread.new do
+      sock.readline
+    end
+    begin sleep(0.1) end until client_thread.stop?
+    Timeout.timeout(1) do
+      sock.close
+      sock = nil
+      assert_raise(IOError, bug4390) {client_thread.join}
+    end
+  ensure
+    server.close
+  end
+
+  def test_connect_timeout
+    host = "127.0.0.1"
+    server = TCPServer.new(host, 0)
+    port = server.addr[1]
+    serv_thread = Thread.new {server.accept}
+    sock = Socket.tcp(host, port, :connect_timeout => 30)
+    accepted = serv_thread.value
+    assert_kind_of TCPSocket, accepted
+    assert_equal sock, IO.select(nil, [ sock ])[1][0], "not writable"
+    sock.close
+
+    # some platforms may not timeout when the listener queue overflows,
+    # but we know Linux does with the default listen backlog of SOMAXCONN for
+    # TCPServer.
+    assert_raises(Errno::ETIMEDOUT) do
+      (Socket::SOMAXCONN*2).times do |i|
+        sock = Socket.tcp(host, port, :connect_timeout => 0)
+        assert_equal sock, IO.select(nil, [ sock ])[1][0],
+                     "not writable (#{i})"
+        sock.close
+      end
+    end if RUBY_PLATFORM =~ /linux/
+  ensure
+    server.close
+    accepted.close if accepted
+    sock.close if sock && ! sock.closed?
+  end
 end if defined?(Socket)

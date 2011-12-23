@@ -14,6 +14,7 @@
 #include <time.h>
 #include <errno.h>
 #include "ruby/encoding.h"
+#include "internal.h"
 
 #ifdef HAVE_UNISTD_H
 #include <unistd.h>
@@ -21,6 +22,10 @@
 
 #include <float.h>
 #include <math.h>
+
+#ifdef HAVE_STRINGS_H
+#include <strings.h>
+#endif
 
 #include "timev.h"
 
@@ -68,7 +73,7 @@ add(VALUE x, VALUE y)
         if (FIXABLE(l)) return LONG2FIX(l);
         return LONG2NUM(l);
     }
-    if (TYPE(x) == T_BIGNUM) return rb_big_plus(x, y);
+    if (RB_TYPE_P(x, T_BIGNUM)) return rb_big_plus(x, y);
     return rb_funcall(x, '+', 1, y);
 }
 
@@ -80,7 +85,7 @@ sub(VALUE x, VALUE y)
         if (FIXABLE(l)) return LONG2FIX(l);
         return LONG2NUM(l);
     }
-    if (TYPE(x) == T_BIGNUM) return rb_big_minus(x, y);
+    if (RB_TYPE_P(x, T_BIGNUM)) return rb_big_minus(x, y);
     return rb_funcall(x, '-', 1, y);
 }
 
@@ -143,7 +148,7 @@ mul(VALUE x, VALUE y)
 	    return LONG2NUM(z);
 #endif
     }
-    if (TYPE(x) == T_BIGNUM)
+    if (RB_TYPE_P(x, T_BIGNUM))
         return rb_big_mul(x, y);
     return rb_funcall(x, '*', 1, y);
 }
@@ -177,14 +182,14 @@ quo(VALUE x, VALUE y)
         }
     }
     ret = rb_funcall(x, id_quo, 1, y);
-    if (TYPE(ret) == T_RATIONAL &&
+    if (RB_TYPE_P(ret, T_RATIONAL) &&
         RRATIONAL(ret)->den == INT2FIX(1)) {
         ret = RRATIONAL(ret)->num;
     }
     return ret;
 }
 
-#define mulquo(x,y,z) ((y == z) ? x : quo(mul(x,y),z))
+#define mulquo(x,y,z) (((y) == (z)) ? (x) : quo(mul((x),(y)),(z)))
 
 static void
 divmodv(VALUE n, VALUE d, VALUE *q, VALUE *r)
@@ -386,7 +391,7 @@ v2w(VALUE v)
     if (FIXNUM_P(v)) {
         return WIDEVAL_WRAP((WIDEVALUE)(SIGNED_WIDEVALUE)(long)v);
     }
-    else if (TYPE(v) == T_BIGNUM &&
+    else if (RB_TYPE_P(v, T_BIGNUM) &&
         RBIGNUM_LEN(v) * sizeof(BDIGIT) <= sizeof(WIDEVALUE)) {
         return v2w_bignum(v);
     }
@@ -446,7 +451,7 @@ wadd(wideval_t wx, wideval_t wy)
     else
 #endif
     x = w2v(wx);
-    if (TYPE(x) == T_BIGNUM) return v2w(rb_big_plus(x, w2v(wy)));
+    if (RB_TYPE_P(x, T_BIGNUM)) return v2w(rb_big_plus(x, w2v(wy)));
     return v2w(rb_funcall(x, '+', 1, w2v(wy)));
 }
 
@@ -462,7 +467,7 @@ wsub(wideval_t wx, wideval_t wy)
     else
 #endif
     x = w2v(wx);
-    if (TYPE(x) == T_BIGNUM) return v2w(rb_big_minus(x, w2v(wy)));
+    if (RB_TYPE_P(x, T_BIGNUM)) return v2w(rb_big_minus(x, w2v(wy)));
     return v2w(rb_funcall(x, '-', 1, w2v(wy)));
 }
 
@@ -520,9 +525,9 @@ wmul(wideval_t wx, wideval_t wy)
     }
 #endif
     x = w2v(wx);
-    if (TYPE(x) == T_BIGNUM) return v2w(rb_big_mul(x, w2v(wy)));
+    if (RB_TYPE_P(x, T_BIGNUM)) return v2w(rb_big_mul(x, w2v(wy)));
     z = rb_funcall(x, '*', 1, w2v(wy));
-    if (TYPE(z) == T_RATIONAL && RRATIONAL(z)->den == INT2FIX(1)) {
+    if (RB_TYPE_P(z, T_RATIONAL) && RRATIONAL(z)->den == INT2FIX(1)) {
         z = RRATIONAL(z)->num;
     }
     return v2w(z);
@@ -547,7 +552,7 @@ wquo(wideval_t wx, wideval_t wy)
     x = w2v(wx);
     y = w2v(wy);
     ret = rb_funcall(x, id_quo, 1, y);
-    if (TYPE(ret) == T_RATIONAL &&
+    if (RB_TYPE_P(ret, T_RATIONAL) &&
         RRATIONAL(ret)->den == INT2FIX(1)) {
         ret = RRATIONAL(ret)->num;
     }
@@ -853,11 +858,11 @@ static const char *find_time_t(struct tm *tptr, int utc_p, time_t *tp);
 static struct vtm *localtimew(wideval_t timew, struct vtm *result);
 
 static int leap_year_p(long y);
-#define leap_year_v_p(y) leap_year_p(NUM2LONG(mod(v, INT2FIX(400))))
+#define leap_year_v_p(y) leap_year_p(NUM2LONG(mod((y), INT2FIX(400))))
 
 #ifdef HAVE_GMTIME_R
-#define rb_gmtime_r(t, tm) gmtime_r(t, tm)
-#define rb_localtime_r(t, tm) localtime_r(t, tm)
+#define rb_gmtime_r(t, tm) gmtime_r((t), (tm))
+#define rb_localtime_r(t, tm) localtime_r((t), (tm))
 #else
 static inline struct tm *
 rb_gmtime_r(const time_t *tp, struct tm *result)
@@ -885,8 +890,8 @@ rb_localtime_r2(const time_t *t, struct tm *result)
     result = rb_localtime_r(t, result);
 #if defined(HAVE_MKTIME) && defined(LOCALTIME_OVERFLOW_PROBLEM)
     if (result) {
-        int gmtoff1 = 0;
-        int gmtoff2 = 0;
+        long gmtoff1 = 0;
+        long gmtoff2 = 0;
         struct tm tmp = *result;
         time_t t2;
 #  if defined(HAVE_STRUCT_TM_TM_GMTOFF)
@@ -905,20 +910,20 @@ rb_localtime_r2(const time_t *t, struct tm *result)
 #define LOCALTIME(tm, result) (tzset(),rb_localtime_r2((tm), &(result)))
 
 #if !defined(HAVE_STRUCT_TM_TM_GMTOFF)
-    static struct tm *
-    rb_gmtime_r2(const time_t *t, struct tm *result)
-    {
-        result = rb_gmtime_r(t, result);
+static struct tm *
+rb_gmtime_r2(const time_t *t, struct tm *result)
+{
+    result = rb_gmtime_r(t, result);
 #if defined(HAVE_TIMEGM) && defined(LOCALTIME_OVERFLOW_PROBLEM)
-        if (result) {
-            struct tm tmp = *result;
-            time_t t2 = timegm(&tmp);
-            if (*t != t2)
-                result = NULL;
-        }
-#endif
-        return result;
+    if (result) {
+	struct tm tmp = *result;
+	time_t t2 = timegm(&tmp);
+	if (*t != t2)
+	    result = NULL;
     }
+#endif
+    return result;
+}
 #   define GMTIME(tm, result) rb_gmtime_r2((tm), &(result))
 #endif
 
@@ -1794,14 +1799,14 @@ localtimew(wideval_t timew, struct vtm *result)
 struct time_object {
     wideval_t timew; /* time_t value * TIME_SCALE.  possibly Rational. */
     struct vtm vtm;
-    int gmt;
+    int gmt; /* 0:utc 1:localtime 2:fixoff */
     int tm_got;
 };
 
 #define GetTimeval(obj, tobj) \
-    TypedData_Get_Struct(obj, struct time_object, &time_data_type, tobj)
+    TypedData_Get_Struct((obj), struct time_object, &time_data_type, (tobj))
 
-#define IsTimeval(obj) rb_typeddata_is_kind_of(obj, &time_data_type)
+#define IsTimeval(obj) rb_typeddata_is_kind_of((obj), &time_data_type)
 
 #define TIME_UTC_P(tobj) ((tobj)->gmt == 1)
 #define TIME_SET_UTC(tobj) ((tobj)->gmt = 1)
@@ -1815,7 +1820,10 @@ struct time_object {
      (tobj)->vtm.utc_offset = (off), \
      (tobj)->vtm.zone = NULL)
 
-#define TIME_COPY_GMT(tobj1, tobj2) ((tobj1)->gmt = (tobj2)->gmt)
+#define TIME_COPY_GMT(tobj1, tobj2) \
+    ((tobj1)->gmt = (tobj2)->gmt, \
+     (tobj1)->vtm.utc_offset = (tobj2)->vtm.utc_offset, \
+     (tobj1)->vtm.zone = (tobj2)->vtm.zone)
 
 static VALUE time_get_tm(VALUE, struct time_object *);
 #define MAKE_TM(time, tobj) \
@@ -1871,8 +1879,7 @@ static void
 time_modify(VALUE time)
 {
     rb_check_frozen(time);
-    if (!OBJ_UNTRUSTED(time) && rb_safe_level() >= 4)
-	rb_raise(rb_eSecurityError, "Insecure: can't modify Time");
+    rb_check_trusted(time);
 }
 
 static wideval_t
@@ -2299,7 +2306,27 @@ time_new_timew(VALUE klass, wideval_t timew)
 VALUE
 rb_time_new(time_t sec, long usec)
 {
-    return time_new_timew(rb_cTime, nsec2timew(sec, usec * 1000));
+    wideval_t timew;
+
+    if (usec >= 1000000) {
+	long sec2 = usec / 1000000;
+	if (sec > TIMET_MAX - sec2) {
+	    rb_raise(rb_eRangeError, "out of Time range");
+	}
+	usec -= sec2 * 1000000;
+	sec += sec2;
+    }
+    else if (usec <= 1000000) {
+	long sec2 = usec / 1000000;
+	if (sec < -TIMET_MAX - sec2) {
+	    rb_raise(rb_eRangeError, "out of Time range");
+	}
+	usec -= sec2 * 1000000;
+	sec += sec2;
+    }
+
+    timew = nsec2timew(sec, usec * 1000);
+    return time_new_timew(rb_cTime, timew);
 }
 
 VALUE
@@ -2469,6 +2496,8 @@ time_s_now(VALUE klass)
  *  can be Integer, Float, Rational, or other Numeric.
  *  non-portable feature allows the offset to be negative on some systems.
  *
+ *  If a numeric argument is given, the result is in local time.
+ *
  *     Time.at(0)            #=> 1969-12-31 18:00:00 -0600
  *     Time.at(Time.at(0))   #=> 1969-12-31 18:00:00 -0600
  *     Time.at(946702800)    #=> 1999-12-31 23:00:00 -0600
@@ -2512,7 +2541,7 @@ static const char months[][4] = {
 static int
 obj2int(VALUE obj)
 {
-    if (TYPE(obj) == T_STRING) {
+    if (RB_TYPE_P(obj, T_STRING)) {
 	obj = rb_str_to_inum(obj, 10, FALSE);
     }
 
@@ -2522,7 +2551,7 @@ obj2int(VALUE obj)
 static VALUE
 obj2vint(VALUE obj)
 {
-    if (TYPE(obj) == T_STRING) {
+    if (RB_TYPE_P(obj, T_STRING)) {
 	obj = rb_str_to_inum(obj, 10, FALSE);
     }
     else {
@@ -2537,7 +2566,7 @@ obj2subsecx(VALUE obj, VALUE *subsecx)
 {
     VALUE subsec;
 
-    if (TYPE(obj) == T_STRING) {
+    if (RB_TYPE_P(obj, T_STRING)) {
 	obj = rb_str_to_inum(obj, 10, FALSE);
         *subsecx = INT2FIX(0);
         return NUM2INT(obj);
@@ -2551,7 +2580,7 @@ obj2subsecx(VALUE obj, VALUE *subsecx)
 static long
 usec2subsecx(VALUE obj)
 {
-    if (TYPE(obj) == T_STRING) {
+    if (RB_TYPE_P(obj, T_STRING)) {
 	obj = rb_str_to_inum(obj, 10, FALSE);
     }
 
@@ -2740,7 +2769,7 @@ find_time_t(struct tm *tptr, int utc_p, time_t *tp)
     int status;
     int tptr_tm_yday;
 
-#define GUESS(p) (DEBUG_FIND_TIME_NUMGUESS_INC (utc_p ? gmtime_with_leapsecond(p, &result) : LOCALTIME(p, result)))
+#define GUESS(p) (DEBUG_FIND_TIME_NUMGUESS_INC (utc_p ? gmtime_with_leapsecond((p), &result) : LOCALTIME((p), result)))
 
     guess_lo = TIMET_MIN;
     guess_hi = TIMET_MAX;
@@ -3192,7 +3221,7 @@ time_to_r(VALUE time)
 
     GetTimeval(time, tobj);
     v = w2v(rb_time_unmagnify(tobj->timew));
-    if (TYPE(v) != T_RATIONAL) {
+    if (!RB_TYPE_P(v, T_RATIONAL)) {
         v = rb_Rational1(v);
     }
     return v;
@@ -3405,7 +3434,7 @@ time_init_copy(VALUE copy, VALUE time)
 static VALUE
 time_dup(VALUE time)
 {
-    VALUE dup = time_s_alloc(CLASS_OF(time));
+    VALUE dup = time_s_alloc(rb_obj_class(time));
     time_init_copy(dup, time);
     return dup;
 }
@@ -3614,7 +3643,7 @@ time_get_tm(VALUE time, struct time_object *tobj)
     return time_localtime(time);
 }
 
-static VALUE strftimev(const char *fmt, VALUE time);
+static VALUE strftimev(const char *fmt, VALUE time, rb_encoding *enc);
 
 /*
  *  call-seq:
@@ -3629,10 +3658,7 @@ static VALUE strftimev(const char *fmt, VALUE time);
 static VALUE
 time_asctime(VALUE time)
 {
-    struct time_object *tobj;
-
-    GetTimeval(time, tobj);
-    return strftimev("%a %b %e %T %Y", time);
+    return strftimev("%a %b %e %T %Y", time, rb_usascii_encoding());
 }
 
 /*
@@ -3658,9 +3684,9 @@ time_to_s(VALUE time)
 
     GetTimeval(time, tobj);
     if (TIME_UTC_P(tobj))
-        return strftimev("%Y-%m-%d %H:%M:%S UTC", time);
+        return strftimev("%Y-%m-%d %H:%M:%S UTC", time, rb_usascii_encoding());
     else
-        return strftimev("%Y-%m-%d %H:%M:%S %z", time);
+        return strftimev("%Y-%m-%d %H:%M:%S %z", time, rb_usascii_encoding());
 }
 
 static VALUE
@@ -4189,11 +4215,11 @@ time_zone(VALUE time)
     MAKE_TM(time, tobj);
 
     if (TIME_UTC_P(tobj)) {
-	return rb_str_new2("UTC");
+	return rb_obj_untaint(rb_locale_str_new_cstr("UTC"));
     }
     if (tobj->vtm.zone == NULL)
         return Qnil;
-    return rb_str_new2(tobj->vtm.zone);
+    return rb_obj_untaint(rb_locale_str_new_cstr(tobj->vtm.zone));
 }
 
 /*
@@ -4262,17 +4288,9 @@ time_to_a(VALUE time)
 		    time_zone(time));
 }
 
-size_t
-rb_strftime(char *s, size_t maxsize, const char *format,
-            const struct vtm *vtm, VALUE timev,
-            int gmt);
-
-size_t
-rb_strftime_timespec(char *s, size_t maxsize, const char *format, const struct vtm *vtm, struct timespec *ts, int gmt);
-
 #define SMALLBUF 100
 static size_t
-rb_strftime_alloc(char **buf, const char *format,
+rb_strftime_alloc(char **buf, const char *format, rb_encoding *enc,
                   struct vtm *vtm, wideval_t timew, int gmt)
 {
     size_t size, len, flen;
@@ -4289,17 +4307,17 @@ rb_strftime_alloc(char **buf, const char *format,
     }
     errno = 0;
     if (timev == Qnil)
-        len = rb_strftime_timespec(*buf, SMALLBUF, format, vtm, &ts, gmt);
+        len = rb_strftime_timespec(*buf, SMALLBUF, format, enc, vtm, &ts, gmt);
     else
-        len = rb_strftime(*buf, SMALLBUF, format, vtm, timev, gmt);
+        len = rb_strftime(*buf, SMALLBUF, format, enc, vtm, timev, gmt);
     if (len != 0 || (**buf == '\0' && errno != ERANGE)) return len;
     for (size=1024; ; size*=2) {
 	*buf = xmalloc(size);
 	(*buf)[0] = '\0';
         if (timev == Qnil)
-            len = rb_strftime_timespec(*buf, size, format, vtm, &ts, gmt);
+            len = rb_strftime_timespec(*buf, size, format, enc, vtm, &ts, gmt);
         else
-            len = rb_strftime(*buf, size, format, vtm, timev, gmt);
+            len = rb_strftime(*buf, size, format, enc, vtm, timev, gmt);
 	/*
 	 * buflen can be zero EITHER because there's not enough
 	 * room in the string, or because the control command
@@ -4307,14 +4325,18 @@ rb_strftime_alloc(char **buf, const char *format,
 	 * if the buffer is 1024 times bigger than the length of the
 	 * format string, it's not failing for lack of room.
 	 */
-	if (len > 0 || size >= 1024 * flen) break;
+	if (len > 0) break;
 	xfree(*buf);
+	if (size >= 1024 * flen) {
+	    rb_sys_fail(format);
+	    break;
+	}
     }
     return len;
 }
 
 static VALUE
-strftimev(const char *fmt, VALUE time)
+strftimev(const char *fmt, VALUE time, rb_encoding *enc)
 {
     struct time_object *tobj;
     char buffer[SMALLBUF], *buf = buffer;
@@ -4323,8 +4345,8 @@ strftimev(const char *fmt, VALUE time)
 
     GetTimeval(time, tobj);
     MAKE_TM(time, tobj);
-    len = rb_strftime_alloc(&buf, fmt, &tobj->vtm, tobj->timew, TIME_UTC_P(tobj));
-    str = rb_str_new(buf, len);
+    len = rb_strftime_alloc(&buf, fmt, enc, &tobj->vtm, tobj->timew, TIME_UTC_P(tobj));
+    str = rb_enc_str_new(buf, len, enc);
     if (buf != buffer) xfree(buf);
     return str;
 }
@@ -4362,10 +4384,11 @@ strftimev(const char *fmt, VALUE time)
  *  Format directives:
  *
  *    Date (Year, Month, Day):
- *      %Y - Year with century
- *      %C - Century (20 in 2009)
- *      %y - Year without a century (00..99)
- *      
+ *      %Y - Year with century (can be negative, 4 digits at least)
+ *              -0001, 0000, 1995, 2009, 14292, etc.
+ *      %C - year / 100 (round down.  20 in 2009)
+ *      %y - year % 100 (00..99)
+ *
  *      %m - Month of the year, zero-padded (01..12)
  *              %_m  blank-padded ( 1..12)
  *              %-m  no-padded (1..12)
@@ -4374,13 +4397,13 @@ strftimev(const char *fmt, VALUE time)
  *      %b - The abbreviated month name (``Jan'')
  *              %^b  uppercased (``JAN'')
  *      %h - Equivalent to %b
- *      
+ *
  *      %d - Day of the month, zero-padded (01..31)
  *              %-d  no-padded (1..31)
  *      %e - Day of the month, blank-padded ( 1..31)
  *
  *      %j - Day of the year (001..366)
- *      
+ *
  *    Time (Hour, Minute, Second, Subsecond):
  *      %H - Hour of the day, 24-hour clock, zero-padded (00..23)
  *      %k - Hour of the day, 24-hour clock, blank-padded ( 0..23)
@@ -4388,29 +4411,32 @@ strftimev(const char *fmt, VALUE time)
  *      %l - Hour of the day, 12-hour clock, blank-padded ( 1..12)
  *      %P - Meridian indicator, lowercase (``am'' or ``pm'')
  *      %p - Meridian indicator, uppercase (``AM'' or ``PM'')
- *      
+ *
  *      %M - Minute of the hour (00..59)
- *      
+ *
  *      %S - Second of the minute (00..60)
- *      
+ *
  *      %L - Millisecond of the second (000..999)
  *      %N - Fractional seconds digits, default is 9 digits (nanosecond)
  *              %3N  millisecond (3 digits)
  *              %6N  microsecond (6 digits)
  *              %9N  nanosecond (9 digits)
- *      
+ *              %12N picosecond (12 digits)
+ *
  *    Time zone:
  *      %z - Time zone as hour and minute offset from UTC (e.g. +0900)
  *              %:z - hour and minute offset from UTC with a colon (e.g. +09:00)
  *              %::z - hour, minute and second offset from UTC (e.g. +09:00:00)
  *      %Z - Time zone abbreviation name
- *      
+ *
  *    Weekday:
  *      %A - The full weekday name (``Sunday'')
  *              %^A  uppercased (``SUNDAY'')
+ *      %a - The abbreviated name (``Sun'')
+ *              %^a  uppercased (``SUN'')
  *      %u - Day of the week (Monday is 1, 1..7)
  *      %w - Day of the week (Sunday is 0, 0..6)
- *      
+ *
  *    ISO 8601 week-based year and week number:
  *    The week 1 of YYYY starts with a Monday and includes YYYY-01-04.
  *    The days in the year before the first week are in the last week of
@@ -4418,26 +4444,26 @@ strftimev(const char *fmt, VALUE time)
  *      %G - The week-based year
  *      %g - The last 2 digits of the week-based year (00..99)
  *      %V - Week number of the week-based year (01..53)
- *      
+ *
  *    Week number:
  *    The week 1 of YYYY starts with a Sunday or Monday (according to %U
  *    or %W).  The days in the year before the first week are in week 0.
  *      %U - Week number of the year.  The week starts with Sunday.  (00..53)
  *      %W - Week number of the year.  The week starts with Monday.  (00..53)
- *      
+ *
  *    Seconds since the Epoch:
  *      %s - Number of seconds since 1970-01-01 00:00:00 UTC.
- *      
+ *
  *    Literal string:
  *      %n - Newline character (\n)
  *      %t - Tab character (\t)
  *      %% - Literal ``%'' character
- *      
+ *
  *    Combination:
  *      %c - date and time (%a %b %e %T %Y)
  *      %D - Date (%m/%d/%y)
  *      %F - The ISO 8601 date format (%Y-%m-%d)
- *      %v - VMS date (%e-%b-%Y)
+ *      %v - VMS date (%e-%^b-%4Y)
  *      %x - Same as %D
  *      %X - Same as %T
  *      %r - 12-hour time (%I:%M:%S %p)
@@ -4448,63 +4474,74 @@ strftimev(const char *fmt, VALUE time)
  *  Several directives (%a, %A, %b, %B, %c, %p, %r, %x, %X, %E*, %O* and %Z)
  *  are locale dependent in the function.
  *  However this method is locale independent since Ruby 1.9.
+ *  (%Z is platform dependent, though.)
  *  So, the result may differ even if a same format string is used in other
  *  systems such as C.
- *  It is good practice to avoid %x and %X c because there are corresponding
+ *  It is good practice to avoid %x and %X because there are corresponding
  *  locale independent representations, %D and %T.
+ *
+ *  %z is recommended over %Z.
+ *  %Z doesn't identify the timezone.
+ *  For example, "CST" is used at America/Chicago (-06:00),
+ *  America/Havana (-05:00), Asia/Harbin (+08:00), Australia/Darwin (+09:30)
+ *  and Australia/Adelaide (+10:30).
+ *  Also, %Z is highly dependent for OS.
+ *  For example, it may generate a non ASCII string on Japanese Windows.
+ *  i.e. the result can be different to "JST".
+ *  So the numeric time zone offset, %z, is recommended.
  *
  *  Examples:
  *
  *    t = Time.new(2007,11,19,8,37,48,"-06:00") #=> 2007-11-19 08:37:48 -0600
  *    t.strftime("Printed on %m/%d/%Y")   #=> "Printed on 11/19/2007"
  *    t.strftime("at %I:%M%p")            #=> "at 08:37AM"
- *    
+ *
  *  Various ISO 8601 formats:
- *    %Y%m%d           => "20071119"                  Calendar date (basic format)
- *    %F               => "2007-11-19"                Calendar date (extended format)
- *    %Y-%m            => "2007-11"                   Calendar date, reduced accuracy, specific month
- *    %Y               => "2007"                      Calendar date, reduced accuracy, specific year
- *    %C               => "20"                        Calendar date, reduced accuracy, specific century
- *    %Y%j             => "2007323"                   Ordinal date (basic format)
- *    %Y-%j            => "2007-323"                  Ordinal date (extended format)
- *    %GW%V%u          => "2007W471"                  Week date (basic format)
- *    %G-W%V-%u        => "2007-W47-1"                Week date (extended format)
- *    %GW%V            => "2007W47"                   Week date, reduced accuracy, specific week (basic format)
- *    %G-W%V           => "2007-W47"                  Week date, reduced accuracy, specific week (extended format)
- *    %H%M%S           => "083748"                    Local time (basic format)
- *    %T               => "08:37:48"                  Local time (extended format)
- *    %H%M             => "0837"                      Local time, reduced accuracy, specific minute (basic format)
- *    %H:%M            => "08:37"                     Local time, reduced accuracy, specific minute (extended format)
- *    %H               => "08"                        Local time, reduced accuracy, specific hour
- *    %H%M%S,%L        => "083748,000"                Local time with decimal fraction, comma as decimal sign (basic format)
- *    %T,%L            => "08:37:48,000"              Local time with decimal fraction, comma as decimal sign (extended format)
- *    %H%M%S.%L        => "083748.000"                Local time with decimal fraction, full stop as decimal sign (basic format)
- *    %T.%L            => "08:37:48.000"              Local time with decimal fraction, full stop as decimal sign (extended format)
- *    %H%M%S%z         => "083748-0600"               Local time and the difference from UTC (basic format)
- *    %T%:z            => "08:37:48-06:00"            Local time and the difference from UTC (extended format)
- *    %Y%m%dT%H%M%S%z  => "20071119T083748-0600"      Date and time of day for calendar date (basic format)
- *    %FT%T%:z         => "2007-11-19T08:37:48-06:00" Date and time of day for calendar date (extended format)
- *    %Y%jT%H%M%S%z    => "2007323T083748-0600"       Date and time of day for ordinal date (basic format)
- *    %Y-%jT%T%:z      => "2007-323T08:37:48-06:00"   Date and time of day for ordinal date (extended format)
- *    %GW%V%uT%H%M%S%z => "2007W471T083748-0600"      Date and time of day for week date (basic format)
- *    %G-W%V-%uT%T%:z  => "2007-W47-1T08:37:48-06:00" Date and time of day for week date (extended format)
- *    %Y%m%dT%H%M      => "20071119T0837"             Calendar date and local time (basic format)
- *    %FT%R            => "2007-11-19T08:37"          Calendar date and local time (extended format)
- *    %Y%jT%H%MZ       => "2007323T0837Z"             Ordinal date and UTC of day (basic format)
- *    %Y-%jT%RZ        => "2007-323T08:37Z"           Ordinal date and UTC of day (extended format)
- *    %GW%V%uT%H%M%z   => "2007W471T0837-0600"        Week date and local time and difference from UTC (basic format)
- *    %G-W%V-%uT%R%:z  => "2007-W47-1T08:37-06:00"    Week date and local time and difference from UTC (extended format)
+ *    %Y%m%d           => 20071119                  Calendar date (basic)
+ *    %F               => 2007-11-19                Calendar date (extended)
+ *    %Y-%m            => 2007-11                   Calendar date, reduced accuracy, specific month
+ *    %Y               => 2007                      Calendar date, reduced accuracy, specific year
+ *    %C               => 20                        Calendar date, reduced accuracy, specific century
+ *    %Y%j             => 2007323                   Ordinal date (basic)
+ *    %Y-%j            => 2007-323                  Ordinal date (extended)
+ *    %GW%V%u          => 2007W471                  Week date (basic)
+ *    %G-W%V-%u        => 2007-W47-1                Week date (extended)
+ *    %GW%V            => 2007W47                   Week date, reduced accuracy, specific week (basic)
+ *    %G-W%V           => 2007-W47                  Week date, reduced accuracy, specific week (extended)
+ *    %H%M%S           => 083748                    Local time (basic)
+ *    %T               => 08:37:48                  Local time (extended)
+ *    %H%M             => 0837                      Local time, reduced accuracy, specific minute (basic)
+ *    %H:%M            => 08:37                     Local time, reduced accuracy, specific minute (extended)
+ *    %H               => 08                        Local time, reduced accuracy, specific hour
+ *    %H%M%S,%L        => 083748,000                Local time with decimal fraction, comma as decimal sign (basic)
+ *    %T,%L            => 08:37:48,000              Local time with decimal fraction, comma as decimal sign (extended)
+ *    %H%M%S.%L        => 083748.000                Local time with decimal fraction, full stop as decimal sign (basic)
+ *    %T.%L            => 08:37:48.000              Local time with decimal fraction, full stop as decimal sign (extended)
+ *    %H%M%S%z         => 083748-0600               Local time and the difference from UTC (basic)
+ *    %T%:z            => 08:37:48-06:00            Local time and the difference from UTC (extended)
+ *    %Y%m%dT%H%M%S%z  => 20071119T083748-0600      Date and time of day for calendar date (basic)
+ *    %FT%T%:z         => 2007-11-19T08:37:48-06:00 Date and time of day for calendar date (extended)
+ *    %Y%jT%H%M%S%z    => 2007323T083748-0600       Date and time of day for ordinal date (basic)
+ *    %Y-%jT%T%:z      => 2007-323T08:37:48-06:00   Date and time of day for ordinal date (extended)
+ *    %GW%V%uT%H%M%S%z => 2007W471T083748-0600      Date and time of day for week date (basic)
+ *    %G-W%V-%uT%T%:z  => 2007-W47-1T08:37:48-06:00 Date and time of day for week date (extended)
+ *    %Y%m%dT%H%M      => 20071119T0837             Calendar date and local time (basic)
+ *    %FT%R            => 2007-11-19T08:37          Calendar date and local time (extended)
+ *    %Y%jT%H%MZ       => 2007323T0837Z             Ordinal date and UTC of day (basic)
+ *    %Y-%jT%RZ        => 2007-323T08:37Z           Ordinal date and UTC of day (extended)
+ *    %GW%V%uT%H%M%z   => 2007W471T0837-0600        Week date and local time and difference from UTC (basic)
+ *    %G-W%V-%uT%R%:z  => 2007-W47-1T08:37-06:00    Week date and local time and difference from UTC (extended)
  *
  */
 
 static VALUE
 time_strftime(VALUE time, VALUE format)
 {
-    void rb_enc_copy(VALUE, VALUE);
     struct time_object *tobj;
     char buffer[SMALLBUF], *buf = buffer;
     const char *fmt;
     long len;
+    rb_encoding *enc;
     VALUE str;
 
     GetTimeval(time, tobj);
@@ -4516,6 +4553,7 @@ time_strftime(VALUE time, VALUE format)
     format = rb_str_new4(format);
     fmt = RSTRING_PTR(format);
     len = RSTRING_LEN(format);
+    enc = rb_enc_get(format);
     if (len == 0) {
 	rb_warning("strftime called with empty format string");
     }
@@ -4525,7 +4563,7 @@ time_strftime(VALUE time, VALUE format)
 
 	str = rb_str_new(0, 0);
 	while (p < pe) {
-	    len = rb_strftime_alloc(&buf, p, &tobj->vtm, tobj->timew, TIME_UTC_P(tobj));
+	    len = rb_strftime_alloc(&buf, p, enc, &tobj->vtm, tobj->timew, TIME_UTC_P(tobj));
 	    rb_str_cat(str, buf, len);
 	    p += strlen(p);
 	    if (buf != buffer) {
@@ -4538,12 +4576,11 @@ time_strftime(VALUE time, VALUE format)
 	return str;
     }
     else {
-	len = rb_strftime_alloc(&buf, RSTRING_PTR(format),
+	len = rb_strftime_alloc(&buf, RSTRING_PTR(format), enc,
 				&tobj->vtm, tobj->timew, TIME_UTC_P(tobj));
     }
-    str = rb_str_new(buf, len);
+    str = rb_enc_str_new(buf, len, enc);
     if (buf != buffer) xfree(buf);
-    rb_enc_copy(str, format);
     return str;
 }
 
@@ -4610,7 +4647,7 @@ time_mdump(VALUE time)
     str = rb_str_new(buf, 8);
     rb_copy_generic_ivar(str, time);
     if (!rb_equal(nano, INT2FIX(0))) {
-        if (TYPE(nano) == T_RATIONAL) {
+        if (RB_TYPE_P(nano, T_RATIONAL)) {
             rb_ivar_set(str, id_nano_num, RRATIONAL(nano)->num);
             rb_ivar_set(str, id_nano_den, RRATIONAL(nano)->den);
         }
@@ -4803,20 +4840,83 @@ time_load(VALUE klass, VALUE str)
 }
 
 /*
- *  <code>Time</code> is an abstraction of dates and times. Time is
- *  stored internally as the number of seconds with fraction since
- *  the <em>Epoch</em>, January 1, 1970 00:00 UTC.
- *  Also see the library modules <code>Date</code>.
- *  The <code>Time</code> class treats GMT (Greenwich Mean Time) and
- *  UTC (Coordinated Universal Time)<em>[Yes, UTC really does stand for
- *  Coordinated Universal Time. There was a committee involved.]</em>
- *  as equivalent.  GMT is the older way of referring to these
- *  baseline times but persists in the names of calls on POSIX
- *  systems.
+ *  Time is an abstraction of dates and times. Time is stored internally as
+ *  the number of seconds with fraction since the _Epoch_, January 1, 1970
+ *  00:00 UTC. Also see the library modules Date. The Time class treats GMT
+ *  (Greenwich Mean Time) and UTC (Coordinated Universal Time) as equivalent.
+ *  GMT is the older way of referring to these baseline times but persists in
+ *  the names of calls on POSIX systems.
  *
- *  All times may have fraction. Be aware of
- *  this fact when comparing times with each other---times that are
- *  apparently equal when displayed may be different when compared.
+ *  All times may have fraction. Be aware of this fact when comparing times
+ *  with each other -- times that are apparently equal when displayed may be
+ *  different when compared.
+ *
+ *  = Examples
+ *
+ *  All of these examples were done using the EST timezone which is GMT-5.
+ *
+ *  == Creating a new Time instance
+ *
+ *  You can create a new instance of time with Time.new. This will use the
+ *  current system time. Time.now is a synonym for this. You can also
+ *  pass parts of the time to Time.new such as year, month, minute, etc. When
+ *  you want to construct a time this way you must pass at least a year. If you
+ *  pass the year with nothing else time with default to January 1 of that year
+ *  at 00:00:00 with the current system timezone. Here are some examples:
+ *
+ *    Time.new(2002)         #=> 2002-01-01 00:00:00 -0500
+ *    Time.new(2002, 10)     #=> 2002-10-01 00:00:00 -0500
+ *    Time.new(2002, 10, 31) #=> 2002-10-31 00:00:00 -0500
+ *    Time.new(2002, 10, 31, 2, 2, 2, "+02:00") #=> 2002-10-31 02:02:02 -0200
+ *
+ *  You can also use #gm, #local and #utc to infer GMT, local and UTC
+ *  timezones instead of using the current system setting.
+ *
+ *  You can also create a new time using Time.at which takes the number of
+ *  seconds (or fraction of seconds) since the {Unix
+ *  Epoch}[http://en.wikipedia.org/wiki/Unix_time].
+ *
+ *    Time.at(628232400) #=> 1989-11-28 00:00:00 -0500
+ *
+ *  == Working with an instance of Time
+ *
+ *  Once you have an instance of time there is a multitude of things you can do
+ *  with it. Below are some examples. For all of the following examples, we
+ *  will work on the assumption that you have done the following:
+ *
+ *    t = Time.new(1993, 02, 24, 12, 0, 0, "+09:00")
+ *
+ *  Was that a monday?
+ *
+ *    t.monday? #=> false
+ *
+ *  What year was that again?
+ *
+ *    t.year #=> 1993
+ *
+ *  Was is daylight savings at the time?
+ *
+ *    t.dst? #=> false
+ *
+ *  What's the day a year later?
+ *
+ *    t + (60*60*24*365) #=> 1994-02-24 12:00:00 +0900
+ *
+ *  How many second was that from the Unix Epoc?
+ *
+ *    t.to_i #=> 730522800
+ *
+ *  You can also do standard functions like compare two times.
+ *
+ *    t1 = Time.new(2010)
+ *    t2 = Time.new(2011)
+ *
+ *    t1 == t2 #=> false
+ *    t1 == t1 #=> true
+ *    t1 <  t2 #=> true
+ *    t1 >  t2 #=> false
+ *
+ *    Time.new(2010,10,31).between?(t1, t2) #=> true
  */
 
 void

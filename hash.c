@@ -14,6 +14,7 @@
 #include "ruby/ruby.h"
 #include "ruby/st.h"
 #include "ruby/util.h"
+#include "ruby/encoding.h"
 #include <errno.h>
 
 #ifdef __APPLE__
@@ -43,7 +44,7 @@ rb_any_cmp(VALUE a, VALUE b)
     if (FIXNUM_P(a) && FIXNUM_P(b)) {
 	return a != b;
     }
-    if (TYPE(a) == T_STRING && RBASIC(a)->klass == rb_cString &&
+    if (RB_TYPE_P(a, T_STRING) && RBASIC(a)->klass == rb_cString &&
 	TYPE(b) == T_STRING && RBASIC(b)->klass == rb_cString) {
 	return rb_str_hash_cmp(a, b);
     }
@@ -105,10 +106,8 @@ static const struct st_hash_type objhash = {
     rb_any_hash,
 };
 
-static const struct st_hash_type identhash = {
-    st_numcmp,
-    st_numhash,
-};
+extern const struct st_hash_type st_hashtype_num;
+#define identhash st_hashtype_num
 
 typedef int st_foreach_func(st_data_t, st_data_t, st_data_t);
 
@@ -509,7 +508,6 @@ rb_hash_aref(VALUE hash, VALUE key)
     st_data_t val;
 
     if (!RHASH(hash)->ntbl || !st_lookup(RHASH(hash)->ntbl, key, &val)) {
-	int rb_method_basic_definition_p(VALUE klass, ID id);
 	if (!FL_TEST(hash, HASH_PROC_DEFAULT) &&
 	    rb_method_basic_definition_p(CLASS_OF(hash), id_default)) {
 	    return RHASH_IFNONE(hash);
@@ -583,10 +581,11 @@ rb_hash_fetch_m(int argc, VALUE *argv, VALUE hash)
     if (!RHASH(hash)->ntbl || !st_lookup(RHASH(hash)->ntbl, key, &val)) {
 	if (block_given) return rb_yield(key);
 	if (argc == 1) {
-	    VALUE desc = rb_protect(rb_inspect, key, 0);
-	    if (NIL_P(desc) || RSTRING_LEN(desc) > 65) {
+	    volatile VALUE desc = rb_protect(rb_inspect, key, 0);
+	    if (NIL_P(desc)) {
 		desc = rb_any_to_s(key);
 	    }
+	    desc = rb_str_ellipsize(desc, 65);
 	    rb_raise(rb_eKeyError, "key not found: %s", RSTRING_PTR(desc));
 	}
 	return if_none;
@@ -688,8 +687,6 @@ rb_hash_default_proc(VALUE hash)
     return Qnil;
 }
 
-VALUE rb_obj_is_proc(VALUE proc);
-
 /*
  *  call-seq:
  *     hsh.default_proc = proc_obj     -> proc_obj
@@ -738,10 +735,12 @@ key_i(VALUE key, VALUE value, VALUE arg)
  *  call-seq:
  *     hsh.key(value)    -> key
  *
- *  Returns the key for a given value. If not found, returns <code>nil</code>.
+ *  Returns the key of an occurrence of a given value. If the value is
+ *  not found, returns <code>nil</code>.
  *
- *     h = { "a" => 100, "b" => 200 }
+ *     h = { "a" => 100, "b" => 200, "c" => 300, "d" => 300 }
  *     h.key(200)   #=> "b"
+ *     h.key(300)   #=> "c"
  *     h.key(999)   #=> nil
  *
  */
@@ -943,6 +942,7 @@ rb_hash_reject_bang(VALUE hash)
 /*
  *  call-seq:
  *     hsh.reject {| key, value | block }  -> a_hash
+ *     hsh.reject                          -> an_enumerator
  *
  *  Same as <code>Hash#delete_if</code>, but works on (and returns) a
  *  copy of the <i>hsh</i>. Equivalent to
@@ -1366,10 +1366,13 @@ inspect_i(VALUE key, VALUE value, VALUE str)
     VALUE str2;
 
     if (key == Qundef) return ST_CONTINUE;
+    str2 = rb_inspect(key);
     if (RSTRING_LEN(str) > 1) {
 	rb_str_cat2(str, ", ");
     }
-    str2 = rb_inspect(key);
+    else {
+	rb_enc_copy(str, str2);
+    }
     rb_str_buf_append(str, str2);
     OBJ_INFECT(str, str2);
     rb_str_buf_cat2(str, "=>");
@@ -1594,7 +1597,7 @@ hash_equal(VALUE hash1, VALUE hash2, int eql)
     struct equal_data data;
 
     if (hash1 == hash2) return Qtrue;
-    if (TYPE(hash2) != T_HASH) {
+    if (!RB_TYPE_P(hash2, T_HASH)) {
 	if (!rb_respond_to(hash2, rb_intern("to_hash"))) {
 	    return Qfalse;
 	}
@@ -1663,9 +1666,12 @@ static int
 hash_i(VALUE key, VALUE val, VALUE arg)
 {
     st_index_t *hval = (st_index_t *)arg;
+    st_index_t hdata[2];
 
     if (key == Qundef) return ST_CONTINUE;
-    *hval ^= rb_hash_end(rb_hash_uint(rb_hash_start(rb_hash(key)), rb_hash(val)));
+    hdata[0] = rb_hash(key);
+    hdata[1] = rb_hash(val);
+    *hval ^= st_hash(hdata, sizeof(hdata), 0);
     return ST_CONTINUE;
 }
 
@@ -1677,10 +1683,12 @@ recursive_hash(VALUE hash, VALUE dummy, int recur)
     if (!RHASH(hash)->ntbl)
         return LONG2FIX(0);
     hval = RHASH(hash)->ntbl->num_entries;
+    if (!hval) return LONG2FIX(0);
     if (recur)
-	hval = rb_hash_end(rb_hash_uint(rb_hash_start(rb_hash(rb_cHash)), hval));
+	hval = rb_hash_uint(rb_hash_start(rb_hash(rb_cHash)), hval);
     else
 	rb_hash_foreach(hash, hash_i, (VALUE)&hval);
+    hval = rb_hash_end(hval);
     return INT2FIX(hval);
 }
 
@@ -1785,6 +1793,43 @@ rb_hash_update(VALUE hash1, VALUE hash2)
     return hash1;
 }
 
+struct update_arg {
+    VALUE hash;
+    rb_hash_update_func *func;
+};
+
+static int
+rb_hash_update_func_i(VALUE key, VALUE value, VALUE arg0)
+{
+    struct update_arg *arg = (struct update_arg *)arg0;
+    VALUE hash = arg->hash;
+
+    if (key == Qundef) return ST_CONTINUE;
+    if (rb_hash_has_key(hash, key)) {
+	value = (*arg->func)(key, rb_hash_aref(hash, key), value);
+    }
+    hash_update(hash, key);
+    st_insert(RHASH(hash)->ntbl, key, value);
+    return ST_CONTINUE;
+}
+
+VALUE
+rb_hash_update_by(VALUE hash1, VALUE hash2, rb_hash_update_func *func)
+{
+    rb_hash_modify(hash1);
+    hash2 = to_hash(hash2);
+    if (func) {
+	struct update_arg arg;
+	arg.hash = hash1;
+	arg.func = func;
+	rb_hash_foreach(hash2, rb_hash_update_func_i, (VALUE)&arg);
+    }
+    else {
+	rb_hash_foreach(hash2, rb_hash_update_i, hash1);
+    }
+    return hash1;
+}
+
 /*
  *  call-seq:
  *     hsh.merge(other_hash)                              -> new_hash
@@ -1864,7 +1909,7 @@ rassoc_i(VALUE key, VALUE val, VALUE arg)
 
 /*
  *  call-seq:
- *     hash.rassoc(key) -> an_array or nil
+ *     hash.rassoc(obj) -> an_array or nil
  *
  *  Searches through the hash comparing _obj_ with the value using <code>==</code>.
  *  Returns the first key-value pair (two-element array) that matches. See
@@ -1966,7 +2011,7 @@ static int path_tainted = -1;
 
 static char **origenviron;
 #ifdef _WIN32
-#define GET_ENVIRON(e) (e = rb_w32_get_environ())
+#define GET_ENVIRON(e) ((e) = rb_w32_get_environ())
 #define FREE_ENVIRON(e) rb_w32_free_environ(e)
 static char **my_environ;
 #undef environ
@@ -1982,11 +2027,11 @@ extern char **environ;
 #define FREE_ENVIRON(e)
 #endif
 #ifdef ENV_IGNORECASE
-#define ENVMATCH(s1, s2) (STRCASECMP(s1, s2) == 0)
-#define ENVNMATCH(s1, s2, n) (STRNCASECMP(s1, s2, n) == 0)
+#define ENVMATCH(s1, s2) (STRCASECMP((s1), (s2)) == 0)
+#define ENVNMATCH(s1, s2, n) (STRNCASECMP((s1), (s2), (n)) == 0)
 #else
-#define ENVMATCH(n1, n2) (strcmp(n1, n2) == 0)
-#define ENVNMATCH(s1, s2, n) (memcmp(s1, s2, n) == 0)
+#define ENVMATCH(n1, n2) (strcmp((n1), (n2)) == 0)
+#define ENVNMATCH(s1, s2, n) (memcmp((s1), (s2), (n)) == 0)
 #endif
 
 static VALUE
@@ -2029,6 +2074,15 @@ env_delete(VALUE obj, VALUE name)
     return Qnil;
 }
 
+/*
+ * call-seq:
+ *   ENV.delete(name)            -> value
+ *   ENV.delete(name) { |name| } -> value
+ *
+ * Deletes the environment variable with +name+ and returns the value of the
+ * variable.  If a block is given it will be called when the named environment
+ * does not exist.
+ */
 static VALUE
 env_delete_m(VALUE obj, VALUE name)
 {
@@ -2041,6 +2095,13 @@ env_delete_m(VALUE obj, VALUE name)
 
 static int env_path_tainted(const char *);
 
+/*
+ * call-seq:
+ *   ENV[name] -> value
+ *
+ * Retrieves the +value+ for environment variable +name+ as a String.  Returns
+ * +nil+ if the named variable does not exist.
+ */
 static VALUE
 rb_f_getenv(VALUE obj, VALUE name)
 {
@@ -2065,6 +2126,20 @@ rb_f_getenv(VALUE obj, VALUE name)
     return Qnil;
 }
 
+/*
+ * :yield: missing_name
+ * call-seq:
+ *   ENV.fetch(name)                        -> value
+ *   ENV.fetch(name, default)               -> value
+ *   ENV.fetch(name) { |missing_name| ... } -> value
+ *
+ * Retrieves the environment variable +name+.
+ *
+ * If the given name does not exist and neither +default+ nor a block a
+ * provided an IndexError is raised.  If a block is given it is called with
+ * the missing name to provide a value.  If a default value is given it will
+ * be returned when no block is given.
+ */
 static VALUE
 env_fetch(int argc, VALUE *argv)
 {
@@ -2121,7 +2196,7 @@ rb_env_path_tainted(void)
 }
 
 #if defined(_WIN32) || (defined(HAVE_SETENV) && defined(HAVE_UNSETENV))
-#elif defined __sun__
+#elif defined __sun
 static int
 in_origenv(const char *str)
 {
@@ -2148,6 +2223,21 @@ envix(const char *nam)
 }
 #endif
 
+#if defined(_WIN32)
+static size_t
+getenvsize(const char* p)
+{
+    const char* porg = p;
+    while (*p++) p += strlen(p) + 1;
+    return p - porg + 1;
+}
+static size_t
+getenvblocksize()
+{
+    return (rb_w32_osver() >= 5) ? 32767 : 5120;
+}
+#endif
+
 void
 ruby_setenv(const char *name, const char *value)
 {
@@ -2160,6 +2250,11 @@ ruby_setenv(const char *name, const char *value)
 	rb_sys_fail("ruby_setenv");
     }
     if (value) {
+	const char* p = GetEnvironmentStringsA();
+	if (!p) goto fail; /* never happen */
+	if (strlen(name) + 2 + strlen(value) + getenvsize(p) >= getenvblocksize()) {
+	    goto fail;  /* 2 for '=' & '\0' */
+	}
 	buf = rb_sprintf("%s=%s", name, value);
     }
     else {
@@ -2189,7 +2284,7 @@ ruby_setenv(const char *name, const char *value)
 	    rb_sys_fail("unsetenv");
 #endif
     }
-#elif defined __sun__
+#elif defined __sun
     size_t len;
     char **env_ptr, *str;
     if (strchr(name, '=')) {
@@ -2261,6 +2356,15 @@ ruby_unsetenv(const char *name)
     ruby_setenv(name, 0);
 }
 
+/*
+ * call-seq:
+ *   ENV[name] = value
+ *   ENV.store(name, value) -> value
+ *
+ * Sets the environment variable +name+ to +value+.  If the value given is
+ * +nil+ the environment variable is deleted.
+ *
+ */
 static VALUE
 env_aset(VALUE obj, VALUE nm, VALUE val)
 {
@@ -2297,6 +2401,12 @@ env_aset(VALUE obj, VALUE nm, VALUE val)
     return val;
 }
 
+/*
+ * call-seq:
+ *   ENV.keys -> Array
+ *
+ * Returns every environment variable name in an Array
+ */
 static VALUE
 env_keys(void)
 {
@@ -2317,6 +2427,15 @@ env_keys(void)
     return ary;
 }
 
+/*
+ * call-seq:
+ *   ENV.each_key { |name| } -> Hash
+ *   ENV.each_key            -> Enumerator
+ *
+ * Yields each environment variable name.
+ *
+ * An Enumerator is returned if no block is given.
+ */
 static VALUE
 env_each_key(VALUE ehash)
 {
@@ -2331,6 +2450,12 @@ env_each_key(VALUE ehash)
     return ehash;
 }
 
+/*
+ * call-seq:
+ *   ENV.values -> Array
+ *
+ * Returns every environment variable value as an Array
+ */
 static VALUE
 env_values(void)
 {
@@ -2351,6 +2476,15 @@ env_values(void)
     return ary;
 }
 
+/*
+ * call-seq:
+ *   ENV.each_value { |value| } -> Hash
+ *   ENV.each_value             -> Enumerator
+ *
+ * Yields each environment variable +value+.
+ *
+ * An Enumerator is returned if no block was given.
+ */
 static VALUE
 env_each_value(VALUE ehash)
 {
@@ -2365,6 +2499,17 @@ env_each_value(VALUE ehash)
     return ehash;
 }
 
+/*
+ * call-seq:
+ *   ENV.each      { |name, value| } -> Hash
+ *   ENV.each                        -> Enumerator
+ *   ENV.each_pair { |name, value| } -> Hash
+ *   ENV.each_pair                   -> Enumerator
+ *
+ * Yields each environment variable +name+ and +value+.
+ *
+ * If no block is given an Enumerator is returned.
+ */
 static VALUE
 env_each_pair(VALUE ehash)
 {
@@ -2393,6 +2538,15 @@ env_each_pair(VALUE ehash)
     return ehash;
 }
 
+/*
+ * call-seq:
+ *   ENV.reject! { |name, value| } -> Hash or nil
+ *   ENV.reject!                   -> Enumerator
+ *
+ * Equivalent to ENV#delete_if but returns +nil+ if no changes were made.
+ *
+ * Returns an Enumerator if no block was given.
+ */
 static VALUE
 env_reject_bang(VALUE ehash)
 {
@@ -2416,6 +2570,15 @@ env_reject_bang(VALUE ehash)
     return envtbl;
 }
 
+/*
+ * call-seq:
+ *   ENV.delete_if { |name, value| } -> Hash
+ *   ENV.delete_if                   -> Enumerator
+ *
+ * Deletes every environment variable for which the block evaluates to +true+.
+ *
+ * If no block is given an enumerator is returned instead.
+ */
 static VALUE
 env_delete_if(VALUE ehash)
 {
@@ -2424,6 +2587,13 @@ env_delete_if(VALUE ehash)
     return envtbl;
 }
 
+/*
+ * call-seq:
+ *   ENV.values_at(name, ...) -> Array
+ *
+ * Returns an array containing the environment variable values associated with
+ * the given names.  See also ENV.select.
+ */
 static VALUE
 env_values_at(int argc, VALUE *argv)
 {
@@ -2438,6 +2608,15 @@ env_values_at(int argc, VALUE *argv)
     return result;
 }
 
+/*
+ * call-seq:
+ *   ENV.select { |name, value| } -> Hash
+ *   ENV.select                   -> Enumerator
+ *
+ * Returns a copy of the environment for entries where the block returns true.
+ *
+ * Returns an Enumerator if no block was given.
+ */
 static VALUE
 env_select(VALUE ehash)
 {
@@ -2464,6 +2643,13 @@ env_select(VALUE ehash)
     return result;
 }
 
+/*
+ * call-seq:
+ *   ENV.select! { |name, value| } -> ENV or nil
+ *   ENV.select!                   -> Enumerator
+ *
+ * Equivalent to ENV#keep_if but returns +nil+ if no changes were made.
+ */
 static VALUE
 env_select_bang(VALUE ehash)
 {
@@ -2487,6 +2673,15 @@ env_select_bang(VALUE ehash)
     return envtbl;
 }
 
+/*
+ * call-seq:
+ *   ENV.keep_if { |name, value| } -> Hash
+ *   ENV.keep_if                   -> Enumerator
+ *
+ * Deletes every environment variable where the block evaluates to +false+.
+ *
+ * Returns an enumerator if no block was given.
+ */
 static VALUE
 env_keep_if(VALUE ehash)
 {
@@ -2495,6 +2690,12 @@ env_keep_if(VALUE ehash)
     return envtbl;
 }
 
+/*
+ * call-seq:
+ *   ENV.clear
+ *
+ * Removes every environment variable.
+ */
 VALUE
 rb_env_clear(void)
 {
@@ -2511,12 +2712,24 @@ rb_env_clear(void)
     return envtbl;
 }
 
+/*
+ * call-seq:
+ *   ENV.to_s -> "ENV"
+ *
+ * Returns "ENV"
+ */
 static VALUE
 env_to_s(void)
 {
     return rb_usascii_str_new2("ENV");
 }
 
+/*
+ * call-seq:
+ *   ENV.inspect -> string
+ *
+ * Returns the contents of the environment as a String.
+ */
 static VALUE
 env_inspect(void)
 {
@@ -2548,6 +2761,15 @@ env_inspect(void)
     return str;
 }
 
+/*
+ * call-seq:
+ *   ENV.to_a -> Array
+ *
+ * Converts the environment variables into an array of names and value arrays.
+ *
+ *   ENV.to_a # => [["TERM" => "xterm-color"], ["SHELL" => "/bin/bash"], ...]
+ *
+ */
 static VALUE
 env_to_a(void)
 {
@@ -2569,12 +2791,26 @@ env_to_a(void)
     return ary;
 }
 
+/*
+ * call-seq:
+ *   ENV.rehash
+ *
+ * Re-hashing the environment variables does nothing.  It is provided for
+ * compatibility with Hash.
+ */
 static VALUE
 env_none(void)
 {
     return Qnil;
 }
 
+/*
+ * call-seq:
+ *   ENV.length
+ *   ENV.size
+ *
+ * Returns the number of environment variables.
+ */
 static VALUE
 env_size(void)
 {
@@ -2589,6 +2825,12 @@ env_size(void)
     return INT2FIX(i);
 }
 
+/*
+ * call-seq:
+ *   ENV.empty? -> true or false
+ *
+ * Returns true when there are no environment variables
+ */
 static VALUE
 env_empty_p(void)
 {
@@ -2604,6 +2846,15 @@ env_empty_p(void)
     return Qfalse;
 }
 
+/*
+ * call-seq:
+ *   ENV.key?(name)     -> true or false
+ *   ENV.include?(name) -> true or false
+ *   ENV.has_key?(name) -> true or false
+ *   ENV.member?(name)  -> true or false
+ *
+ * Returns +true+ if there is an environment variable with the given +name+.
+ */
 static VALUE
 env_has_key(VALUE env, VALUE key)
 {
@@ -2617,6 +2868,13 @@ env_has_key(VALUE env, VALUE key)
     return Qfalse;
 }
 
+/*
+ * call-seq:
+ *   ENV.assoc(name) -> Array or nil
+ *
+ * Returns an Array of the name and value of the environment variable with
+ * +name+ or +nil+ if the name cannot be found.
+ */
 static VALUE
 env_assoc(VALUE env, VALUE key)
 {
@@ -2631,6 +2889,13 @@ env_assoc(VALUE env, VALUE key)
     return Qnil;
 }
 
+/*
+ * call-seq:
+ *   ENV.value?(value) -> true or false
+ *   ENV.has_value?(value) -> true or false
+ *
+ * Returns +true+ if there is an environment variable with the given +value+.
+ */
 static VALUE
 env_has_value(VALUE dmy, VALUE obj)
 {
@@ -2655,6 +2920,13 @@ env_has_value(VALUE dmy, VALUE obj)
     return Qfalse;
 }
 
+/*
+ * call-seq:
+ *   ENV.rassoc(value)
+ *
+ * Returns an Array of the name and value of the environment variable with
+ * +value+ or +nil+ if the value cannot be found.
+ */
 static VALUE
 env_rassoc(VALUE dmy, VALUE obj)
 {
@@ -2680,6 +2952,13 @@ env_rassoc(VALUE dmy, VALUE obj)
     return Qnil;
 }
 
+/*
+ * call-seq:
+ *   ENV.key(value) -> name
+ *
+ * Returns the name of the environment variable with +value+.  If the value is
+ * not found +nil+ is returned.
+ */
 static VALUE
 env_key(VALUE dmy, VALUE value)
 {
@@ -2705,6 +2984,12 @@ env_key(VALUE dmy, VALUE value)
     return Qnil;
 }
 
+/*
+ * call-seq:
+ *   ENV.index(value) -> key
+ *
+ * Deprecated method that is equivalent to ENV.key
+ */
 static VALUE
 env_index(VALUE dmy, VALUE value)
 {
@@ -2712,6 +2997,13 @@ env_index(VALUE dmy, VALUE value)
     return env_key(dmy, value);
 }
 
+/*
+ * call-seq:
+ *   ENV.to_hash -> Hash
+ *
+ * Creates a hash with a copy of the environment variables.
+ *
+ */
 static VALUE
 env_to_hash(void)
 {
@@ -2733,12 +3025,27 @@ env_to_hash(void)
     return hash;
 }
 
+/*
+ * call-seq:
+ *   ENV.reject { |name, value| } -> Hash
+ *   ENV.reject                   -> Enumerator
+ *
+ * Same as ENV#delete_if, but works on (and returns) a copy of the
+ * environment.
+ */
 static VALUE
 env_reject(void)
 {
     return rb_hash_delete_if(env_to_hash());
 }
 
+/*
+ * call-seq:
+ *   ENV.shift -> Array or nil
+ *
+ * Removes an environment variable name-value pair from ENV and returns it as
+ * an Array.  Returns +nil+ if when the environment is empty.
+ */
 static VALUE
 env_shift(void)
 {
@@ -2759,6 +3066,13 @@ env_shift(void)
     return Qnil;
 }
 
+/*
+ * call-seq:
+ *   ENV.invert -> Hash
+ *
+ * Returns a new hash created by using environment variable names as values
+ * and values as names.
+ */
 static VALUE
 env_invert(void)
 {
@@ -2777,6 +3091,13 @@ env_replace_i(VALUE key, VALUE val, VALUE keys)
     return ST_CONTINUE;
 }
 
+/*
+ * call-seq:
+ *   ENV.replace(hash) -> env
+ *
+ * Replaces the contents of the environment variables with the contents of
+ * +hash+.
+ */
 static VALUE
 env_replace(VALUE env, VALUE hash)
 {
@@ -2806,6 +3127,16 @@ env_update_i(VALUE key, VALUE val)
     return ST_CONTINUE;
 }
 
+/*
+ * call-seq:
+ *   ENV.update(hash)                                  -> Hash
+ *   ENV.update(hash) { |name, old_value, new_value| } -> Hash
+ *
+ * Adds the contents of +hash+ to the environment variables.  If no block is
+ * specified entries with duplicate keys are overwritten, otherwise the value
+ * of each duplicate name is determined by calling the block with the key, its
+ * value from the environment and its value from the hash.
+ */
 static VALUE
 env_update(VALUE env, VALUE hash)
 {
@@ -2817,14 +3148,70 @@ env_update(VALUE env, VALUE hash)
 }
 
 /*
- *  A <code>Hash</code> is a collection of key-value pairs. It is
- *  similar to an <code>Array</code>, except that indexing is done via
- *  arbitrary keys of any object type, not an integer index. Hashes enumerate
- *  their values in the order that the corresponding keys were inserted.
+ *  A Hash is a dictionary-like collection of unique keys and their values.
+ *  Also called associative arrays, they are similar to Arrays, but where an
+ *  Array uses integers as its index, a Hash allows you to use any object
+ *  type.
+ *
+ *  Hashes enumerate their values in the order that the corresponding keys
+ *  were inserted.
+ *
+ *  A Hash can be easily created by using its implicit form:
+ *
+ *    grades = { "Jane Doe" => 10, "Jim Doe" => 6 }
+ *
+ *  Hashes allow an alternate syntax form when your keys are always symbols.
+ *  Instead of
+ *
+ *    options = { :font_size => 10, :font_family => "Arial" }
+ *
+ *  You could write it as:
+ *
+ *    options = { font_size: 10, font_family: "Arial" }
+ *
+ *  Each named key is a symbol you can access in hash:
+ *
+ *    options[:font_size]  # => 10
+ *
+ *  A Hash can also be created through its ::new method:
+ *
+ *    grades = Hash.new
+ *    grades["Dorothy Doe"] = 9
  *
  *  Hashes have a <em>default value</em> that is returned when accessing
- *  keys that do not exist in the hash. By default, that value is
- *  <code>nil</code>.
+ *  keys that do not exist in the hash. If no default is set +nil+ is used.
+ *  You can set the default value by sending it as an argument to Hash.new:
+ *
+ *    grades = Hash.new(0)
+ *
+ *  Or by using the #default= method:
+ *
+ *    grades = {"Timmy Doe" => 8}
+ *    grades.default = 0
+ *
+ *  Accessing a value in a Hash requires using its key:
+ *
+ *    puts grades["Jane Doe"] # => 10
+ *
+ *  === Common Uses
+ *
+ *  Hashes are an easy way to represent data structures, such as
+ *
+ *    books         = {}
+ *    books[:matz]  = "The Ruby Language"
+ *    books[:black] = "The Well-Grounded Rubyist"
+ *
+ *  Hashes are also commonly used as a way to have named parameters in
+ *  functions. Note that no brackets are used below. If a hash is the last
+ *  argument on a method call, no braces are needed, thus creating a really
+ *  clean interface:
+ *
+ *    Person.create(name: "John Doe", age: 27)
+ *
+ *    def self.create(params)
+ *      @name = params[:name]
+ *      @age  = params[:age]
+ *    end
  *
  */
 
@@ -2908,6 +3295,15 @@ Init_Hash(void)
     rb_define_method(rb_cHash,"compare_by_identity", rb_hash_compare_by_id, 0);
     rb_define_method(rb_cHash,"compare_by_identity?", rb_hash_compare_by_id_p, 0);
 
+    /* Document-class: ENV
+     *
+     * ENV is a hash-like accessor for environment variables.
+     */
+
+    /*
+     * Hack to get RDoc to regard ENV as a class:
+     * envtbl = rb_define_class("ENV", rb_cObject);
+     */
     origenviron = environ;
     envtbl = rb_obj_alloc(rb_cObject);
     rb_extend_object(envtbl, rb_mEnumerable);
@@ -2954,5 +3350,10 @@ Init_Hash(void)
     rb_define_singleton_method(envtbl,"assoc", env_assoc, 1);
     rb_define_singleton_method(envtbl,"rassoc", env_rassoc, 1);
 
+    /*
+     * ENV is a Hash-like accessor for environment variables.
+     *
+     * See ENV (the class) for more details.
+     */
     rb_define_global_const("ENV", envtbl);
 }

@@ -30,6 +30,8 @@ module Find
   # Calls the associated block with the name of every file and directory listed
   # as arguments, then recursively on their subdirectories, and so on.
   #
+  # Returns an enumerator if no block is given.
+  #
   # See the +Find+ module documentation for an example.
   #
   def find(*paths) # :yield: path
@@ -38,7 +40,7 @@ module Find
     paths.collect!{|d| raise Errno::ENOENT unless File.exist?(d); d.dup}
     while file = paths.shift
       catch(:prune) do
-	yield file.dup.taint
+        yield file.dup.taint
         begin
           s = File.lstat(file)
         rescue Errno::ENOENT, Errno::EACCES, Errno::ENOTDIR, Errno::ELOOP, Errno::ENAMETOOLONG

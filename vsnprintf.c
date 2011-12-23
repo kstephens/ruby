@@ -206,20 +206,20 @@ typedef	struct __sFILE {
 #define	EOF	(-1)
 
 
-#define	__sfeof(p)	(((p)->_flags & __SEOF) != 0)
-#define	__sferror(p)	(((p)->_flags & __SERR) != 0)
-#define	__sclearerr(p)	((void)((p)->_flags &= ~(__SERR|__SEOF)))
-#define	__sfileno(p)	((p)->_file)
+#define	BSD__sfeof(p)	(((p)->_flags & __SEOF) != 0)
+#define	BSD__sferror(p)	(((p)->_flags & __SERR) != 0)
+#define	BSD__sclearerr(p)	((void)((p)->_flags &= ~(__SERR|__SEOF)))
+#define	BSD__sfileno(p)	((p)->_file)
 
 #undef feof
 #undef ferror
 #undef clearerr
-#define	feof(p)		__sfeof(p)
-#define	ferror(p)	__sferror(p)
-#define	clearerr(p)	__sclearerr(p)
+#define	feof(p)		BSD__sfeof(p)
+#define	ferror(p)	BSD__sferror(p)
+#define	clearerr(p)	BSD__sclearerr(p)
 
 #ifndef _ANSI_SOURCE
-#define	fileno(p)	__sfileno(p)
+#define	fileno(p)	BSD__sfileno(p)
 #endif
 
 
@@ -368,7 +368,7 @@ static char *
 BSD__uqtoa(register u_quad_t val, char *endp, int base, int octzero, const char *xdigs)
 {
 	register char *cp = endp;
-	register long sval;
+	register quad_t sval;
 
 	/*
 	 * Handle the three cases separately, in the hope of getting
@@ -597,10 +597,10 @@ BSD_vfprintf(FILE *fp, const char *fmt0, va_list ap)
 #define	PAD(howmany, with) { \
 	if ((n = (howmany)) > 0) { \
 		while (n > PADSIZE) { \
-			PRINT(with, PADSIZE); \
+			PRINT((with), PADSIZE); \
 			n -= PADSIZE; \
 		} \
-		PRINT(with, n); \
+		PRINT((with), n); \
 	} \
 }
 #if SIZEOF_LONG > SIZEOF_INT
@@ -611,10 +611,10 @@ BSD_vfprintf(FILE *fp, const char *fmt0, va_list ap)
 	    errno = ENOMEM; \
 	    goto error; \
 	} \
-	if (ln > 0) PAD((int)ln, with); \
+	if (ln > 0) PAD((int)ln, (with)); \
 }
 #else
-#define PAD_L(howmany, with) PAD(howmany, with)
+#define PAD_L(howmany, with) PAD((howmany), (with))
 #endif
 #define	FLUSH() { \
 	if (uio.uio_resid && BSD__sprint(fp, &uio)) \
@@ -745,7 +745,16 @@ reswitch:	switch (ch) {
 		case 'z':
 #endif
 		case 'l':
+#ifdef _HAVE_SANE_QUAD_
+			if (*fmt == 'l') {
+				fmt++;
+				flags |= QUADINT;
+			} else {
+				flags |= LONGINT;
+			}
+#else
 			flags |= LONGINT;
+#endif
 			goto rflag;
 #ifdef _HAVE_SANE_QUAD_
 #if SIZEOF_PTRDIFF_T == SIZEOF_LONG_LONG
@@ -758,6 +767,26 @@ reswitch:	switch (ch) {
 			flags |= QUADINT;
 			goto rflag;
 #endif /* _HAVE_SANE_QUAD_ */
+#ifdef _WIN32
+		case 'I':
+			if (*fmt == '3' && *(fmt + 1) == '2') {
+			    fmt += 2;
+			    flags |= LONGINT;
+			}
+#ifdef _HAVE_SANE_QUAD_
+			else if (*fmt == '6' && *(fmt + 1) == '4') {
+			    fmt += 2;
+			    flags |= QUADINT;
+			}
+#endif
+			else
+#if defined(_HAVE_SANE_QUAD_) && SIZEOF_SIZE_T == SIZEOF_LONG_LONG
+			    flags |= QUADINT;
+#else
+			    flags |= LONGINT;
+#endif
+			goto rflag;
+#endif
 		case 'c':
 			cp = buf;
 			*buf = (char)va_arg(ap, int);
@@ -790,7 +819,7 @@ reswitch:	switch (ch) {
 #ifdef FLOATING_POINT
 		case 'a':
 		case 'A':
-			if (prec >= 0) {
+			if (prec > 0) {
 				flags |= ALT;
 				prec++;
 			}
@@ -855,6 +884,8 @@ fp_begin:		_double = va_arg(ap, double);
 						size += prec + 1;
 				} else if (!prec) { /* "0" */
 					size = 1;
+					if (flags & ALT)
+						size += 1;
 				} else	/* "0.X" */
 					size = prec + 2;
 			} else if (expt >= ndig) {	/* fixed g fmt */
@@ -1136,7 +1167,7 @@ long_len:
 done:
 	FLUSH();
 error:
-	return (__sferror(fp) ? EOF : ret);
+	return (BSD__sferror(fp) ? EOF : ret);
 	/* NOTREACHED */
 }
 
@@ -1175,6 +1206,7 @@ cvt(value, ndigits, flags, sign, decpt, ch, length, buf)
 	else {
 	    digits = BSD__dtoa(value, mode, ndigits, decpt, &dsgn, &rve);
 	}
+	buf[0] = 0; /* rve - digits may be 0 */
 	memcpy(buf, digits, rve - digits);
 	xfree(digits);
 	rve = buf + (rve - digits);

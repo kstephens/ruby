@@ -1,6 +1,6 @@
 /**********************************************************************
 
-  eval.c -
+  safe.c -
 
   $Author$
   created at: Tue Sep 23 09:44:32 JST 2008
@@ -122,7 +122,7 @@ void
 rb_check_safe_str(VALUE x)
 {
     rb_check_safe_obj(x);
-    if (TYPE(x) != T_STRING) {
+    if (!RB_TYPE_P(x, T_STRING)) {
 	rb_raise(rb_eTypeError, "wrong argument type %s (expected String)",
 		 rb_obj_classname(x));
     }

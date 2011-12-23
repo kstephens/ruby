@@ -1,6 +1,9 @@
-require 'io/console'
-require 'pty'
-require 'test/unit'
+begin
+  require 'io/console'
+  require 'test/unit'
+  require 'pty'
+rescue LoadError
+end
 
 class TestIO_Console < Test::Unit::TestCase
   def test_raw
@@ -10,6 +13,21 @@ class TestIO_Console < Test::Unit::TestCase
       s.raw {
         s.print "def\n"
         assert_equal("def\n", m.gets)
+      }
+      s.print "ghi\n"
+      assert_equal("ghi\r\n", m.gets)
+    }
+  end
+
+  def test_cooked
+    helper {|m, s|
+      s.raw {
+        s.print "abc\n"
+        assert_equal("abc\n", m.gets)
+        s.cooked {
+          s.print "def\n"
+          assert_equal("def\r\n", m.gets)
+        }
       }
       s.print "ghi\n"
       assert_equal("ghi\r\n", m.gets)
@@ -114,7 +132,7 @@ class TestIO_Console < Test::Unit::TestCase
       s.print "a"
       s.oflush # oflush may be issued after "a" is already sent.
       s.print "b"
-      assert_includes(["b", "ab"], m.readpartial(10))
+      assert_include(["b", "ab"], m.readpartial(10))
     }
   end
 
@@ -132,7 +150,7 @@ class TestIO_Console < Test::Unit::TestCase
       s.print "a"
       s.ioflush # ioflush may be issued after "a" is already sent.
       s.print "b"
-      assert_includes(["b", "ab"], m.readpartial(10))
+      assert_include(["b", "ab"], m.readpartial(10))
     }
   end
 
@@ -143,6 +161,22 @@ class TestIO_Console < Test::Unit::TestCase
       rescue Errno::EINVAL # OpenSolaris 2009.06 TIOCGWINSZ causes Errno::EINVAL before TIOCSWINSZ.
       end
     }
+  end
+
+  if IO.console
+    def test_sync
+      assert(IO.console.sync, "console should be unbuffered")
+    end
+  else
+    def test_sync
+      r, w, pid = PTY.spawn(EnvUtil.rubybin, "-rio/console", "-e", "p IO.console.class")
+    rescue RuntimeError
+      skip $!
+    else
+      con = r.gets.chomp
+      Process.wait(pid)
+      assert_match("File", con)
+    end
   end
 
   private
@@ -156,4 +190,39 @@ class TestIO_Console < Test::Unit::TestCase
     m.close if m
     s.close if s
   end
-end
+end if defined?(PTY) and defined?(IO::console)
+
+class TestIO_Console < Test::Unit::TestCase
+  require_relative '../../ruby/envutil'
+
+  case
+  when Process.respond_to?(:daemon)
+    noctty = [EnvUtil.rubybin, "-e", "Process.daemon(true)"]
+  when !(rubyw = RbConfig::CONFIG["RUBYW_INSTALL_NAME"]).empty?
+    dir, base = File.split(EnvUtil.rubybin)
+    noctty = [File.join(dir, base.sub(/ruby/, rubyw))]
+  end
+
+  if noctty
+    require 'tempfile'
+    NOCTTY = noctty
+    def test_noctty
+      t = Tempfile.new("console")
+      t.close
+      t2 = Tempfile.new("console")
+      t2.close
+      cmd = NOCTTY + [
+        '-rio/console',
+        '-e', 'open(ARGV[0], "w") {|f| f.puts IO.console.inspect}',
+        '-e', 'File.unlink(ARGV[1])',
+        '--', t.path, t2.path]
+      system(*cmd)
+      sleep 0.1 while File.exist?(t2.path)
+      t.open
+      assert_equal("nil", t.gets.chomp)
+    ensure
+      t.close! if t and !t.closed?
+      t2.close!
+    end
+  end
+end if defined?(IO.console)

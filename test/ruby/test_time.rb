@@ -3,6 +3,7 @@ require 'rational'
 require 'delegate'
 require 'timeout'
 require 'delegate'
+require_relative 'envutil'
 
 class TestTime < Test::Unit::TestCase
   def setup
@@ -19,6 +20,10 @@ class TestTime < Test::Unit::TestCase
     assert_equal(Time.utc(2000,2,10), Time.new(2000,2,9, 13,0,0, -3600*11))
     assert_equal(Time.utc(2000,2,10), Time.new(2000,2,10, 11,0,0, "+11:00"))
     assert_equal(Rational(1,2), Time.new(2000,2,10, 11,0,5.5, "+11:00").subsec)
+    bug4090 = '[ruby-dev:42631]'
+    tm = [2001,2,28,23,59,30]
+    t = Time.new(*tm, "-12:00")
+    assert_equal([2001,2,28,23,59,30,-43200], [t.year, t.month, t.mday, t.hour, t.min, t.sec, t.gmt_offset], bug4090)
   end
 
   def test_time_add()
@@ -172,7 +177,7 @@ class TestTime < Test::Unit::TestCase
 
     t = Time.at(2**40 + "1/3".to_r, 9999999999999).utc
     assert_equal(36812, t.year)
-    
+
     t = Time.at(-0x3fff_ffff_ffff_ffff)
     assert_equal(-146138510344, t.year)
     t = Time.at(-0x4000_0000_0000_0000)
@@ -271,6 +276,13 @@ class TestTime < Test::Unit::TestCase
     t2 = Marshal.load(m)
     assert_equal(t1, t2)
     assert_equal(29700, t2.utc_offset, bug)
+  end
+
+  def test_marshal_to_s
+    t1 = Time.new(2011,11,8, 0,42,25, 9*3600)
+    t2 = Time.at(Marshal.load(Marshal.dump(t1)))
+    assert_equal("2011-11-08 00:42:25 +0900", t2.to_s,
+      "[ruby-dev:44827] [Bug #5586]")
   end
 
   # Sat Jan 01 00:00:00 UTC 2000
@@ -412,13 +424,19 @@ class TestTime < Test::Unit::TestCase
 
   def test_asctime
     assert_equal("Sat Jan  1 00:00:00 2000", T2000.asctime)
+    assert_equal(Encoding::US_ASCII, T2000.asctime.encoding)
     assert_kind_of(String, Time.at(0).asctime)
   end
 
   def test_to_s
     assert_equal("2000-01-01 00:00:00 UTC", T2000.to_s)
+    assert_equal(Encoding::US_ASCII, T2000.to_s.encoding)
     assert_kind_of(String, Time.at(946684800).getlocal.to_s)
     assert_equal(Time.at(946684800).getlocal.to_s, Time.at(946684800).to_s)
+  end
+
+  def test_zone
+    assert_equal(Encoding.find('locale'), Time.now.zone.encoding)
   end
 
   def test_plus_minus_succ
@@ -465,6 +483,7 @@ class TestTime < Test::Unit::TestCase
     assert_equal(1, T2000.yday)
     assert_equal(false, T2000.isdst)
     assert_equal("UTC", T2000.zone)
+    assert_equal(Encoding.find("locale"), T2000.zone.encoding)
     assert_equal(0, T2000.gmt_offset)
     assert(!T2000.sunday?)
     assert(!T2000.monday?)
@@ -486,6 +505,7 @@ class TestTime < Test::Unit::TestCase
     assert_equal(t.yday, Time.at(946684800).yday)
     assert_equal(t.isdst, Time.at(946684800).isdst)
     assert_equal(t.zone, Time.at(946684800).zone)
+    assert_equal(Encoding.find("locale"), Time.at(946684800).zone.encoding)
     assert_equal(t.gmt_offset, Time.at(946684800).gmt_offset)
     assert_equal(t.sunday?, Time.at(946684800).sunday?)
     assert_equal(t.monday?, Time.at(946684800).monday?)
@@ -542,6 +562,8 @@ class TestTime < Test::Unit::TestCase
 
     t = Time.mktime(2001, 10, 1)
     assert_equal("2001-10-01", t.strftime("%F"))
+    assert_equal(Encoding::UTF_8, t.strftime("\u3042%Z").encoding)
+    assert_equal(true, t.strftime("\u3042%Z").valid_encoding?)
 
     t = Time.mktime(2001, 10, 1, 2, 0, 0)
     assert_equal("01", t.strftime("%d"))
@@ -583,6 +605,18 @@ class TestTime < Test::Unit::TestCase
     assert_equal(" 2", t.strftime("%l"))
     assert_equal("02", t.strftime("%0l"))
     assert_equal(" 2", t.strftime("%_l"))
+
+    t = Time.utc(1,1,4)
+    assert_equal("0001", t.strftime("%Y"))
+    assert_equal("0001", t.strftime("%G"))
+
+    t = Time.utc(0,1,4)
+    assert_equal("0000", t.strftime("%Y"))
+    assert_equal("0000", t.strftime("%G"))
+
+    t = Time.utc(-1,1,4)
+    assert_equal("-0001", t.strftime("%Y"))
+    assert_equal("-0001", t.strftime("%G"))
 
     # [ruby-dev:37155]
     t = Time.mktime(1970, 1, 18)
@@ -628,6 +662,12 @@ class TestTime < Test::Unit::TestCase
                  t.strftime("%m/%d/%Y %l:%M:%S.%9N"))
     assert_equal("03/14/1592  6:53:58.97932384",
                  t.strftime("%m/%d/%Y %l:%M:%S.%8N"))
+
+    # [ruby-core:33985]
+    assert_equal("3000000000", Time.at(3000000000).strftime('%s'))
+
+    bug4457 = '[ruby-dev:43285]'
+    assert_raise(Errno::ERANGE, bug4457) {Time.now.strftime('%8192z')}
   end
 
   def test_delegate
@@ -675,5 +715,33 @@ class TestTime < Test::Unit::TestCase
       assert_equal(Rational(i % 10, 10), t2.subsec)
       off += 0.1
     }
+  end
+
+  def test_getlocal_dont_share_eigenclass
+    bug5012 = "[ruby-dev:44071]"
+
+    t0 = Time.now
+    class << t0; end
+    t1 = t0.getlocal
+
+    def t0.m
+      0
+    end
+
+    assert_raise(NoMethodError, bug5012) { t1.m }
+  end
+
+  def test_time_subclass
+    bug5036 = '[ruby-dev:44122]'
+    tc = Class.new(Time)
+    tc.inspect
+    t = tc.now
+    error = assert_raise(SecurityError) do
+      proc do
+        $SAFE = 4
+        t.gmtime
+      end.call
+    end
+    assert_equal("Insecure: can't modify #{tc}", error.message, bug5036)
   end
 end

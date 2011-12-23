@@ -29,12 +29,11 @@ module WEBrick
     #
     #   config = { :Realm => 'DigestAuth example realm' }
     #
-    #   htpasswd = WEBrick::HTTPAuth::Htpasswd.new 'my_password_file'
-    #   htpasswd.auth_type = WEBrick::HTTPAuth::DigestAuth
-    #   htpasswd.set_passwd config[:Realm], 'username', 'password'
-    #   htpasswd.flush
+    #   htdigest = WEBrick::HTTPAuth::Htdigest.new 'my_password_file'
+    #   htdigest.set_passwd config[:Realm], 'username', 'password'
+    #   htdigest.flush
     #
-    #   config[:UserDB] = htpasswd
+    #   config[:UserDB] = htdigest
     #
     #   digest_auth = WEBrick::HTTPAuth::DigestAuth.new config
     #
@@ -51,7 +50,7 @@ module WEBrick
       attr_reader :algorithm, :qop
 
       ##
-      # Used by UserDB to create a password entry
+      # Used by UserDB to create a digest password entry
 
       def self.make_passwd(realm, user, pass)
         pass ||= ""
@@ -68,8 +67,8 @@ module WEBrick
       # You must supply the following configuration entries:
       #
       # :Realm:: The name of the realm being protected.
-      # :UserDB:: A database of usernames and passwords.  See Htpasswd,
-      #           Htdigest, Htgroup
+      # :UserDB:: A database of usernames and passwords.
+      #           A WEBrick::HTTPAuth::Htdigest instance should be used.
 
       def initialize(config, default=Config::DigestAuth)
         check_init(config)
@@ -84,7 +83,6 @@ module WEBrick
         @nonce_expire_period    = @config[:NonceExpirePeriod]
         @nonce_expire_delta     = @config[:NonceExpireDelta]
         @internet_explorer_hack = @config[:InternetExplorerHack]
-        @opera_hack             = @config[:OperaHack]
 
         case @algorithm
         when 'MD5','MD5-sess'
@@ -176,8 +174,7 @@ module WEBrick
         end
 
         auth_req['algorithm'] ||= 'MD5'
-        if auth_req['algorithm'] != @algorithm &&
-           (@opera_hack && auth_req['algorithm'] != @algorithm.upcase)
+        if auth_req['algorithm'].upcase != @algorithm.upcase
           error('%s: algorithm unmatch. "%s" for "%s"',
                 auth_req['username'], auth_req['algorithm'], @algorithm)
           return false
@@ -213,8 +210,7 @@ module WEBrick
           nonce_is_invalid = true
         end
 
-        if /-sess$/ =~ auth_req['algorithm'] ||
-           (@opera_hack && /-SESS$/ =~ auth_req['algorithm'])
+        if /-sess$/i =~ auth_req['algorithm']
           ha1 = hexdigest(password, auth_req['nonce'], auth_req['cnonce'])
         else
           ha1 = password
@@ -380,6 +376,9 @@ module WEBrick
       end
 
     end
+
+    ##
+    # Digest authentication for proxy servers.  See DigestAuth for details.
 
     class ProxyDigestAuth < DigestAuth
       include ProxyAuthenticator

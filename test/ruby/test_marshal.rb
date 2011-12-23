@@ -263,7 +263,7 @@ class TestMarshal < Test::Unit::TestCase
     assert_equal(true, y.first.first.untrusted?)
   end
 
-  def test_symbol
+  def test_symbol2
     [:ruby, :"\u{7d05}\u{7389}"].each do |sym|
       assert_equal(sym, Marshal.load(Marshal.dump(sym)), '[ruby-core:24788]')
     end
@@ -321,7 +321,7 @@ class TestMarshal < Test::Unit::TestCase
     end
   end
 
-  def test_regexp
+  def test_regexp2
     assert_equal(/\\u/, Marshal.load("\004\b/\b\\\\u\000"))
     assert_equal(/u/, Marshal.load("\004\b/\a\\u\000"))
     assert_equal(/u/, Marshal.load("\004\bI/\a\\u\000\006:\016@encoding\"\vEUC-JP"))
@@ -431,7 +431,7 @@ class TestMarshal < Test::Unit::TestCase
       m = Marshal.dump(o)
     }
     o2 = Marshal.load(m)
-    assert_equal(STDIN, o.stdin)
+    assert_equal(STDIN, o2.stdin)
   end
 
   def test_marshal_string_encoding
@@ -454,5 +454,19 @@ class TestMarshal < Test::Unit::TestCase
     o2 = Marshal.load(m)
     assert_equal(o1, o2)
   end
-  
+
+  class PrivateClass
+    def initialize(foo)
+      @foo = foo
+    end
+    attr_reader :foo
+  end
+  private_constant :PrivateClass
+
+  def test_marshal_private_class
+    o1 = PrivateClass.new("test")
+    o2 = Marshal.load(Marshal.dump(o1))
+    assert_equal(o1.class, o2.class)
+    assert_equal(o1.foo, o2.foo)
+  end
 end

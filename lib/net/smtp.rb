@@ -229,11 +229,6 @@ module Net
       "#<#{self.class} #{@address}:#{@port} started=#{@started}>"
     end
 
-    # +true+ if the SMTP object uses ESMTP (which it does by default).
-    def esmtp?
-      @esmtp
-    end
-
     #
     # Set whether to use ESMTP or not.  This should be done before
     # calling #start.  Note that if #start is called in ESMTP mode,
@@ -241,11 +236,10 @@ module Net
     # object will automatically switch to plain SMTP mode and
     # retry (but not vice versa).
     #
-    def esmtp=(bool)
-      @esmtp = bool
-    end
+    attr_accessor :esmtp
 
-    alias esmtp esmtp?
+    # +true+ if the SMTP object uses ESMTP (which it does by default).
+    alias :esmtp? :esmtp
 
     # true if server advertises STARTTLS.
     # You cannot get valid value before opening SMTP session.
@@ -542,13 +536,17 @@ module Net
 
     private
 
+    def tcp_socket(address, port)
+      TCPSocket.open address, port
+    end
+
     def do_start(helo_domain, user, secret, authtype)
       raise IOError, 'SMTP session already started' if @started
       if user or secret
         check_auth_method(authtype || DEFAULT_AUTH_TYPE)
         check_auth_args user, secret
       end
-      s = timeout(@open_timeout) { TCPSocket.open(@address, @port) }
+      s = timeout(@open_timeout) { tcp_socket(@address, @port) }
       logging "Connection opened: #{@address}:#{@port}"
       @socket = new_internet_message_io(tls? ? tlsconnect(s) : s)
       check_response critical { recv_response() }
@@ -573,15 +571,23 @@ module Net
       end
     end
 
+    def ssl_socket(socket, context)
+      OpenSSL::SSL::SSLSocket.new socket, context
+    end
+
     def tlsconnect(s)
-      s = OpenSSL::SSL::SSLSocket.new(s, @ssl_context)
+      verified = false
+      s = ssl_socket(s, @ssl_context)
       logging "TLS connection started"
       s.sync_close = true
       s.connect
       if @ssl_context.verify_mode != OpenSSL::SSL::VERIFY_NONE
         s.post_connection_check(@address)
       end
+      verified = true
       s
+    ensure
+      s.close unless verified
     end
 
     def new_internet_message_io(s)
@@ -927,7 +933,7 @@ module Net
       Response.parse(buf)
     end
 
-    def critical(&block)
+    def critical
       return '200 dummy reply code' if @error_occured
       begin
         return yield()
@@ -961,49 +967,74 @@ module Net
       end
     end
 
+    # This class represents a response received by the SMTP server. Instances
+    # of this class are created by the SMTP class; they should not be directly
+    # created by the user. For more information on SMTP responses, view
+    # {Section 4.2 of RFC 5321}[http://tools.ietf.org/html/rfc5321#section-4.2]
     class Response
-      def Response.parse(str)
+      # Parses the received response and separates the reply code and the human
+      # readable reply text
+      def self.parse(str)
         new(str[0,3], str)
       end
 
+      # Creates a new instance of the Response class and sets the status and
+      # string attributes
       def initialize(status, string)
         @status = status
         @string = string
       end
 
+      # The three digit reply code of the SMTP response
       attr_reader :status
+
+      # The human readable reply text of the SMTP response
       attr_reader :string
 
+      # Takes the first digit of the reply code to determine the status type
       def status_type_char
         @status[0, 1]
       end
 
+      # Determines whether the response received was a Positive Completion
+      # reply (2xx reply code)
       def success?
         status_type_char() == '2'
       end
 
+      # Determines whether the response received was a Positive Intermediate
+      # reply (3xx reply code)
       def continue?
         status_type_char() == '3'
       end
 
+      # The first line of the human readable reply text
       def message
         @string.lines.first
       end
 
+      # Creates a CRAM-MD5 challenge. You can view more information on CRAM-MD5
+      # on Wikipedia: http://en.wikipedia.org/wiki/CRAM-MD5
       def cram_md5_challenge
         @string.split(/ /)[1].unpack('m')[0]
       end
 
+      # Returns a hash of the human readable reply text in the response if it
+      # is multiple lines. It does not return the first line. The key of the
+      # hash is the first word the value of the hash is an array with each word
+      # thereafter being a value in the array
       def capabilities
         return {} unless @string[3, 1] == '-'
         h = {}
         @string.lines.drop(1).each do |line|
-          k, *v = line[4..-1].chomp.split(nil)
+          k, *v = line[4..-1].chomp.split
           h[k] = v
         end
         h
       end
 
+      # Determines whether there was an error and raies the appropriate error
+      # based on the reply code of the response
       def exception_class
         case @status
         when /\A4/  then SMTPServerBusy

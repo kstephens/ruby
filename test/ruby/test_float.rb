@@ -315,11 +315,27 @@ class TestFloat < Test::Unit::TestCase
     assert_raise(FloatDomainError) { inf.ceil }
     assert_raise(FloatDomainError) { inf.round }
     assert_raise(FloatDomainError) { inf.truncate }
+  end
 
+  def test_round_with_precision
     assert_equal(1.100, 1.111.round(1))
     assert_equal(1.110, 1.111.round(2))
     assert_equal(11110.0, 11111.1.round(-1))
     assert_equal(11100.0, 11111.1.round(-2))
+
+    assert_equal(10**300, 1.1e300.round(-300))
+    assert_equal(-10**300, -1.1e300.round(-300))
+    assert_equal(1.0e-300, 1.1e-300.round(300))
+    assert_equal(-1.0e-300, -1.1e-300.round(300))
+
+    bug5227 = '[ruby-core:39093]'
+    assert_equal(42.0, 42.0.round(308), bug5227)
+    assert_equal(1.0e307, 1.0e307.round(2), bug5227)
+
+    assert_raise(TypeError) {1.0.round("4")}
+    assert_raise(TypeError) {1.0.round(nil)}
+    def (prec = Object.new).to_int; 2; end
+    assert_equal(1.0, 0.998.round(prec))
   end
 
   VS = [
@@ -436,15 +452,16 @@ class TestFloat < Test::Unit::TestCase
 
   def test_round
     VS.each {|f|
+      msg = "round(#{f})"
       i = f.round
       if f < 0
-        assert_operator(i, :<, 0)
+        assert_operator(i, :<, 0, msg)
       else
-        assert_operator(i, :>, 0)
+        assert_operator(i, :>, 0, msg)
       end
       d = f - i
-      assert_operator(-0.5, :<=, d)
-      assert_operator(d, :<=, 0.5)
+      assert_operator(-0.5, :<=, d, msg)
+      assert_operator(d, :<=, 0.5, msg)
     }
   end
 
@@ -472,6 +489,11 @@ class TestFloat < Test::Unit::TestCase
     assert(Float(o).nan?)
   end
 
+  def test_invalid_str
+    bug4310 = '[ruby-core:34820]'
+    assert_raise(ArgumentError, bug4310) {under_gc_stress {Float('a'*10000)}}
+  end
+
   def test_num2dbl
     assert_raise(TypeError) do
       1.0.step(2.0, "0.5") {}
@@ -484,6 +506,37 @@ class TestFloat < Test::Unit::TestCase
   def test_sleep_with_Float
     assert_nothing_raised("[ruby-core:23282]") do
       sleep(0.1+0.1+0.1+0.1+0.1+0.1+0.1+0.1+0.1+0.1)
+    end
+  end
+
+  def test_step
+    1000.times do
+      a = rand
+      b = a+rand*1000
+      s = (b - a) / 10
+      assert_equal(11, (a..b).step(s).to_a.length)
+    end
+
+    (1.0..12.7).step(1.3).each do |n|
+      assert_operator(n, :<=, 12.7)
+    end
+
+    assert_equal([5.0, 4.0, 3.0, 2.0], 5.0.step(1.5, -1).to_a)
+  end
+
+  def test_step_excl
+    1000.times do
+      a = rand
+      b = a+rand*1000
+      s = (b - a) / 10
+      assert_equal(10, (a...b).step(s).to_a.length)
+    end
+
+    assert_equal([1.0, 2.9, 4.8, 6.699999999999999], (1.0...6.8).step(1.9).to_a)
+
+    e = 1+1E-12
+    (1.0 ... e).step(1E-16) do |n|
+      assert_operator(n, :<=, e)
     end
   end
 end

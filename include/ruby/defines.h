@@ -24,7 +24,10 @@ extern "C" {
 
 #define RUBY
 
-#include <stdlib.h>
+# include <stddef.h>
+#ifdef HAVE_STDLIB_H
+# include <stdlib.h>
+#endif
 #ifdef __cplusplus
 # ifndef  HAVE_PROTOTYPES
 #  define HAVE_PROTOTYPES 1
@@ -91,38 +94,44 @@ void xfree(void*);
 # define SIZEOF_BDIGITS SIZEOF_INT
 # define BDIGIT_DBL unsigned LONG_LONG
 # define BDIGIT_DBL_SIGNED LONG_LONG
+# define PRI_BDIGIT_PREFIX ""
+# define PRI_BDIGIT_DBL_PREFIX PRI_LL_PREFIX
 #elif SIZEOF_INT*2 <= SIZEOF_LONG
 # define BDIGIT unsigned int
 # define SIZEOF_BDIGITS SIZEOF_INT
 # define BDIGIT_DBL unsigned long
 # define BDIGIT_DBL_SIGNED long
+# define PRI_BDIGIT_PREFIX ""
+# define PRI_BDIGIT_DBL_PREFIX "l"
 #elif SIZEOF_SHORT*2 <= SIZEOF_LONG
 # define BDIGIT unsigned short
 # define SIZEOF_BDIGITS SIZEOF_SHORT
 # define BDIGIT_DBL unsigned long
 # define BDIGIT_DBL_SIGNED long
+# define PRI_BDIGIT_PREFIX "h"
+# define PRI_BDIGIT_DBL_PREFIX "l"
 #else
 # define BDIGIT unsigned short
 # define SIZEOF_BDIGITS (SIZEOF_LONG/2)
 # define BDIGIT_DBL unsigned long
 # define BDIGIT_DBL_SIGNED long
+# define PRI_BDIGIT_PREFIX "h"
+# define PRI_BDIGIT_DBL_PREFIX "l"
 #endif
 
-#ifdef INFINITY
-# define HAVE_INFINITY
-#else
-/** @internal */
-extern const unsigned char rb_infinity[];
-# define INFINITY (*(float *)rb_infinity)
-#endif
+#define PRIdBDIGIT PRI_BDIGIT_PREFIX"d"
+#define PRIiBDIGIT PRI_BDIGIT_PREFIX"i"
+#define PRIoBDIGIT PRI_BDIGIT_PREFIX"o"
+#define PRIuBDIGIT PRI_BDIGIT_PREFIX"u"
+#define PRIxBDIGIT PRI_BDIGIT_PREFIX"x"
+#define PRIXBDIGIT PRI_BDIGIT_PREFIX"X"
 
-#ifdef NAN
-# define HAVE_NAN
-#else
-/** @internal */
-extern const unsigned char rb_nan[];
-# define NAN (*(float *)rb_nan)
-#endif
+#define PRIdBDIGIT_DBL PRI_BDIGIT_DBL_PREFIX"d"
+#define PRIiBDIGIT_DBL PRI_BDIGIT_DBL_PREFIX"i"
+#define PRIoBDIGIT_DBL PRI_BDIGIT_DBL_PREFIX"o"
+#define PRIuBDIGIT_DBL PRI_BDIGIT_DBL_PREFIX"u"
+#define PRIxBDIGIT_DBL PRI_BDIGIT_DBL_PREFIX"x"
+#define PRIXBDIGIT_DBL PRI_BDIGIT_DBL_PREFIX"X"
 
 #ifdef __CYGWIN__
 #undef _WIN32
@@ -139,76 +148,6 @@ extern const unsigned char rb_nan[];
 #define WORDS_BIGENDIAN
 #endif
 #endif
-
-#ifdef __NeXT__
-/* NextStep, OpenStep, Rhapsody */
-#ifndef S_IRUSR
-#define S_IRUSR 0000400        /* read permission, owner */
-#endif
-#ifndef S_IRGRP
-#define S_IRGRP 0000040        /* read permission, group */
-#endif
-#ifndef S_IROTH
-#define S_IROTH 0000004        /* read permission, other */
-#endif
-#ifndef S_IWUSR
-#define S_IWUSR 0000200        /* write permission, owner */
-#endif
-#ifndef S_IWGRP
-#define S_IWGRP 0000020        /* write permission, group */
-#endif
-#ifndef S_IWOTH
-#define S_IWOTH 0000002        /* write permission, other */
-#endif
-#ifndef S_IXUSR
-#define S_IXUSR 0000100        /* execute/search permission, owner */
-#endif
-#ifndef S_IXGRP
-#define S_IXGRP 0000010        /* execute/search permission, group */
-#endif
-#ifndef S_IXOTH
-#define S_IXOTH 0000001        /* execute/search permission, other */
-#endif
-#ifndef S_IRWXU
-#define S_IRWXU 0000700        /* read, write, execute permissions, owner */
-#endif
-#ifndef S_IRWXG
-#define S_IRWXG 0000070        /* read, write, execute permissions, group */
-#endif
-#ifndef S_IRWXO
-#define S_IRWXO 0000007        /* read, write, execute permissions, other */
-#endif
-#ifndef S_ISBLK
-#define S_ISBLK(mode)  (((mode) & (0170000)) == (0060000))
-#endif
-#ifndef S_ISCHR
-#define S_ISCHR(mode)  (((mode) & (0170000)) == (0020000))
-#endif
-#ifndef S_ISDIR
-#define S_ISDIR(mode)  (((mode) & (0170000)) == (0040000))
-#endif
-#ifndef S_ISFIFO
-#define S_ISFIFO(mode) (((mode) & (0170000)) == (0010000))
-#endif
-#ifndef S_ISREG
-#define S_ISREG(mode)  (((mode) & (0170000)) == (0100000))
-#endif
-#ifndef __APPLE__
-/* NextStep, OpenStep (but not Rhapsody) */
-#ifndef GETPGRP_VOID
-#define GETPGRP_VOID 1
-#endif
-#ifndef WNOHANG
-#define WNOHANG 01
-#endif
-#ifndef WUNTRACED
-#define WUNTRACED 02
-#endif
-#ifndef X_OK
-#define X_OK 1
-#endif
-#endif /* __APPLE__ */
-#endif /* NeXT */
 
 #ifdef _WIN32
 #include "ruby/win32.h"
@@ -258,22 +197,9 @@ extern const unsigned char rb_nan[];
         /* MB_CUR_MAX will not work well in C locale */
 #endif
 
-#if defined(sparc) || defined(__sparc__)
-static inline void
-flush_register_windows(void)
-{
-    asm
-#ifdef __GNUC__
-	volatile
-#endif
-# if defined(__sparc_v9__) || defined(__sparcv9) || defined(__arch64__)
-	("flushw")
-# else
-	("ta 0x03")
-# endif /* trap always to flush register windows if we are on a Sparc system */
-	;
-}
-#  define FLUSH_REGISTER_WINDOWS flush_register_windows()
+#if defined(__sparc)
+void rb_sparc_flush_register_windows(void);
+#  define FLUSH_REGISTER_WINDOWS rb_sparc_flush_register_windows()
 #elif defined(__ia64)
 void *rb_ia64_bsp(void);
 void rb_ia64_flushrs(void);

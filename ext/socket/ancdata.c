@@ -237,15 +237,16 @@ ancillary_s_unix_rights(int argc, VALUE *argv, VALUE klass)
  *   # recvmsg needs :scm_rights=>true for unix_rights
  *   s1, s2 = UNIXSocket.pair
  *   p s1                                         #=> #<UNIXSocket:fd 3>
- *   s1.sendmsg "stdin and a socket", 0, nil, [:SOCKET, :RIGHTS, [0,s1.fileno].pack("ii")]
+ *   s1.sendmsg "stdin and a socket", 0, nil, Socket::AncillaryData.unix_rights(STDIN, s1)
  *   _, _, _, ctl = s2.recvmsg(:scm_rights=>true)
+ *   p ctl                                        #=> #<Socket::AncillaryData: UNIX SOCKET RIGHTS 6 7>
  *   p ctl.unix_rights                            #=> [#<IO:fd 6>, #<Socket:fd 7>]
  *   p File.identical?(STDIN, ctl.unix_rights[0]) #=> true
  *   p File.identical?(s1, ctl.unix_rights[1])    #=> true
  *
  *   # If :scm_rights=>true is not given, unix_rights returns nil
  *   s1, s2 = UNIXSocket.pair
- *   s1.sendmsg "stdin and a socket", 0, nil, [:SOCKET, :RIGHTS, [0,s1.fileno].pack("ii")]
+ *   s1.sendmsg "stdin and a socket", 0, nil, Socket::AncillaryData.unix_rights(STDIN, s1)
  *   _, _, _, ctl = s2.recvmsg
  *   p ctl #=> #<Socket::AncillaryData: UNIX SOCKET RIGHTS 6 7>
  *   p ctl.unix_rights #=> nil
@@ -1357,11 +1358,22 @@ struct recvmsg_args_struct {
     int flags;
 };
 
+ssize_t
+rsock_recvmsg(int socket, struct msghdr *message, int flags)
+{
+#ifdef MSG_CMSG_CLOEXEC
+    /* MSG_CMSG_CLOEXEC is available since Linux 2.6.23.  Linux 2.6.18 silently ignore it. */
+    flags |= MSG_CMSG_CLOEXEC;
+#endif
+    return recvmsg(socket, message, flags);
+}
+
 static VALUE
 nogvl_recvmsg_func(void *ptr)
 {
     struct recvmsg_args_struct *args = ptr;
-    return recvmsg(args->fd, args->msg, args->flags);
+    int flags = args->flags;
+    return rsock_recvmsg(args->fd, args->msg, flags);
 }
 
 static ssize_t
@@ -1376,13 +1388,26 @@ rb_recvmsg(int fd, struct msghdr *msg, int flags)
 
 #if defined(HAVE_ST_MSG_CONTROL)
 static void
-discard_cmsg(struct cmsghdr *cmh, char *msg_end)
+discard_cmsg(struct cmsghdr *cmh, char *msg_end, int msg_peek_p)
 {
+# if !defined(FD_PASSING_WORK_WITH_RECVMSG_MSG_PEEK)
+    /*
+     * FreeBSD 8.2.0, NetBSD 5 and MacOS X Snow Leopard doesn't
+     * allocate fds by recvmsg with MSG_PEEK.
+     * [ruby-dev:44189]
+     * http://bugs.ruby-lang.org/issues/5075
+     *
+     * Linux 2.6.38 allocate fds by recvmsg with MSG_PEEK.
+     */
+    if (msg_peek_p)
+        return;
+# endif
     if (cmh->cmsg_level == SOL_SOCKET && cmh->cmsg_type == SCM_RIGHTS) {
         int *fdp = (int *)CMSG_DATA(cmh);
         int *end = (int *)((char *)cmh + cmh->cmsg_len);
         while ((char *)fdp + sizeof(int) <= (char *)end &&
                (char *)fdp + sizeof(int) <= msg_end) {
+            rb_fd_fix_cloexec(*fdp);
             close(*fdp);
             fdp++;
         }
@@ -1391,7 +1416,7 @@ discard_cmsg(struct cmsghdr *cmh, char *msg_end)
 #endif
 
 void
-rsock_discard_cmsg_resource(struct msghdr *mh)
+rsock_discard_cmsg_resource(struct msghdr *mh, int msg_peek_p)
 {
 #if defined(HAVE_ST_MSG_CONTROL)
     struct cmsghdr *cmh;
@@ -1403,7 +1428,7 @@ rsock_discard_cmsg_resource(struct msghdr *mh)
     msg_end = (char *)mh->msg_control + mh->msg_controllen;
 
     for (cmh = CMSG_FIRSTHDR(mh); cmh != NULL; cmh = CMSG_NXTHDR(mh, cmh)) {
-        discard_cmsg(cmh, msg_end);
+        discard_cmsg(cmh, msg_end, msg_peek_p);
     }
 #endif
 }
@@ -1425,6 +1450,7 @@ make_io_for_unix_rights(VALUE ctl, struct cmsghdr *cmh, char *msg_end)
             VALUE io;
             if (fstat(fd, &stbuf) == -1)
                 rb_raise(rb_eSocket, "invalid fd in SCM_RIGHTS");
+            rb_fd_fix_cloexec(fd);
             if (S_ISSOCK(stbuf.st_mode))
                 io = rsock_init_sock(rb_obj_alloc(rb_cSocket), fd);
             else
@@ -1597,11 +1623,11 @@ bsock_recvmsg_internal(int argc, VALUE *argv, VALUE sock, int nonblock)
         if (NIL_P(vmaxctllen) && (mh.msg_flags & MSG_CTRUNC)) {
 #define BIG_ENOUGH_SPACE 65536
             if (BIG_ENOUGH_SPACE < maxctllen &&
-                mh.msg_controllen < maxctllen - BIG_ENOUGH_SPACE) {
+                mh.msg_controllen < (socklen_t)(maxctllen - BIG_ENOUGH_SPACE)) {
                 /* there are big space bug truncated.
                  * file descriptors limit? */
                 if (!gc_done) {
-		    rsock_discard_cmsg_resource(&mh);
+		    rsock_discard_cmsg_resource(&mh, (flags & MSG_PEEK) != 0);
                     goto gc_and_retry;
 		}
             }
@@ -1622,14 +1648,14 @@ bsock_recvmsg_internal(int argc, VALUE *argv, VALUE sock, int nonblock)
 	}
 #endif
 	if (grown) {
-            rsock_discard_cmsg_resource(&mh);
+            rsock_discard_cmsg_resource(&mh, (flags & MSG_PEEK) != 0);
 	    goto retry;
 	}
 	else {
             grow_buffer = 0;
             if (flags != orig_flags) {
+                rsock_discard_cmsg_resource(&mh, (flags & MSG_PEEK) != 0);
                 flags = orig_flags;
-                rsock_discard_cmsg_resource(&mh);
                 goto retry;
             }
         }
@@ -1669,7 +1695,7 @@ bsock_recvmsg_internal(int argc, VALUE *argv, VALUE sock, int nonblock)
             if (request_scm_rights)
                 make_io_for_unix_rights(ctl, cmh, msg_end);
             else
-                discard_cmsg(cmh, msg_end);
+                discard_cmsg(cmh, msg_end, (flags & MSG_PEEK) != 0);
             rb_ary_push(ret, ctl);
         }
     }
@@ -1759,17 +1785,17 @@ rsock_bsock_recvmsg_nonblock(int argc, VALUE *argv, VALUE sock)
 }
 #endif
 
-/*
- * Document-class: ::Socket::AncillaryData
- *
- * Socket::AncillaryData represents the ancillary data (control information)
- * used by sendmsg and recvmsg system call.
- * It contains socket family, cmsg level, cmsg type and cmsg data.
- */
 void
 rsock_init_ancdata(void)
 {
 #if defined(HAVE_ST_MSG_CONTROL)
+    /*
+     * Document-class: Socket::AncillaryData
+     *
+     * Socket::AncillaryData represents the ancillary data (control information)
+     * used by sendmsg and recvmsg system call.  It contains socket #family,
+     * control message (cmsg) #level, cmsg #type and cmsg #data.
+     */
     rb_cAncillaryData = rb_define_class_under(rb_cSocket, "AncillaryData", rb_cObject);
     rb_define_method(rb_cAncillaryData, "initialize", ancillary_initialize, 4);
     rb_define_method(rb_cAncillaryData, "inspect", ancillary_inspect, 0);

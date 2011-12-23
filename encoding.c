@@ -11,6 +11,7 @@
 
 #include "ruby/ruby.h"
 #include "ruby/encoding.h"
+#include "internal.h"
 #include "regenc.h"
 #include <ctype.h>
 #ifndef NO_LOCALE_CHARMAP
@@ -158,8 +159,9 @@ rb_to_encoding_index(VALUE enc)
     return rb_enc_find_index(StringValueCStr(enc));
 }
 
-static rb_encoding *
-to_encoding(VALUE enc)
+/* Returns encoding index or UNSPECIFIED_ENCODING */
+static int
+str_to_encindex(VALUE enc)
 {
     int idx;
 
@@ -171,14 +173,20 @@ to_encoding(VALUE enc)
     if (idx < 0) {
 	rb_raise(rb_eArgError, "unknown encoding name - %s", RSTRING_PTR(enc));
     }
-    return rb_enc_from_index(idx);
+    return idx;
+}
+
+static rb_encoding *
+str_to_encoding(VALUE enc)
+{
+    return rb_enc_from_index(str_to_encindex(enc));
 }
 
 rb_encoding *
 rb_to_encoding(VALUE enc)
 {
     if (enc_check_encoding(enc) >= 0) return RDATA(enc)->data;
-    return to_encoding(enc);
+    return str_to_encoding(enc);
 }
 
 void
@@ -436,20 +444,23 @@ rb_enc_unicode_p(rb_encoding *enc)
     return name[0] == 'U' && name[1] == 'T' && name[2] == 'F' && name[4] != '7';
 }
 
-static const char *
+/*
+ * Returns copied alias name when the key is added for st_table,
+ * else returns NULL.
+ */
+static int
 enc_alias_internal(const char *alias, int idx)
 {
-    alias = strdup(alias);
-    st_insert(enc_table.names, (st_data_t)alias, (st_data_t)idx);
-    return alias;
+    return st_insert2(enc_table.names, (st_data_t)alias, (st_data_t)idx,
+	    (st_data_t(*)(st_data_t))strdup);
 }
 
 static int
 enc_alias(const char *alias, int idx)
 {
     if (!valid_encoding_name_p(alias)) return -1;
-    alias = enc_alias_internal(alias, idx);
-    set_encoding_const(alias, rb_enc_from_index(idx));
+    if (!enc_alias_internal(alias, idx))
+	set_encoding_const(alias, rb_enc_from_index(idx));
     return idx;
 }
 
@@ -532,7 +543,8 @@ rb_enc_registered(const char *name)
 static VALUE
 require_enc(VALUE enclib)
 {
-    return rb_require_safe(enclib, rb_safe_level());
+    int safe = rb_safe_level();
+    return rb_require_safe(enclib, safe > 3 ? 3 : safe);
 }
 
 static int
@@ -550,6 +562,7 @@ load_encoding(const char *name)
 	else if (ISUPPER(*s)) *s = TOLOWER(*s);
 	++s;
     }
+    FL_UNSET(enclib, FL_TAINT|FL_UNTRUSTED);
     OBJ_FREEZE(enclib);
     ruby_verbose = Qfalse;
     ruby_debug = Qfalse;
@@ -586,6 +599,7 @@ enc_autoload(rb_encoding *enc)
     return i;
 }
 
+/* Return encoding index or UNSPECIFIED_ENCODING from encoding name */
 int
 rb_enc_find_index(const char *name)
 {
@@ -681,8 +695,8 @@ rb_enc_get_index(VALUE obj)
     return i;
 }
 
-void
-rb_enc_set_index(VALUE obj, int idx)
+static void
+enc_set_index(VALUE obj, int idx)
 {
     if (idx < ENCODING_INLINE_MAX) {
 	ENCODING_SET_INLINED(obj, idx);
@@ -690,13 +704,20 @@ rb_enc_set_index(VALUE obj, int idx)
     }
     ENCODING_SET_INLINED(obj, ENCODING_INLINE_MAX);
     rb_ivar_set(obj, rb_id_encoding(), INT2NUM(idx));
-    return;
+}
+
+void
+rb_enc_set_index(VALUE obj, int idx)
+{
+    rb_check_frozen(obj);
+    enc_set_index(obj, idx);
 }
 
 VALUE
 rb_enc_associate_index(VALUE obj, int idx)
 {
 /*    enc_check_capable(obj);*/
+    rb_check_frozen(obj);
     if (rb_enc_get_index(obj) == idx)
 	return obj;
     if (SPECIAL_CONST_P(obj)) {
@@ -706,7 +727,7 @@ rb_enc_associate_index(VALUE obj, int idx)
 	!rb_enc_asciicompat(rb_enc_from_index(idx))) {
 	ENC_CODERANGE_CLEAR(obj);
     }
-    rb_enc_set_index(obj, idx);
+    enc_set_index(obj, idx);
     return obj;
 }
 
@@ -751,10 +772,10 @@ rb_enc_compatible(VALUE str1, VALUE str2)
     enc1 = rb_enc_from_index(idx1);
     enc2 = rb_enc_from_index(idx2);
 
-    if (TYPE(str2) == T_STRING && RSTRING_LEN(str2) == 0)
-	return (idx1 == ENCINDEX_US_ASCII && rb_enc_asciicompat(enc2)) ? enc2 : enc1;
-    if (TYPE(str1) == T_STRING && RSTRING_LEN(str1) == 0)
-	return (idx2 == ENCINDEX_US_ASCII && rb_enc_asciicompat(enc1)) ? enc1 : enc2;
+    if (BUILTIN_TYPE(str2) == T_STRING && RSTRING_LEN(str2) == 0)
+	return enc1;
+    if (BUILTIN_TYPE(str1) == T_STRING && RSTRING_LEN(str1) == 0)
+	return (rb_enc_asciicompat(enc1) && rb_enc_str_asciionly_p(str2)) ? enc1 : enc2;
     if (!rb_enc_asciicompat(enc1) || !rb_enc_asciicompat(enc2)) {
 	return 0;
     }
@@ -812,11 +833,11 @@ rb_enc_copy(VALUE obj1, VALUE obj2)
 VALUE
 rb_obj_encoding(VALUE obj)
 {
-    rb_encoding *enc = rb_enc_get(obj);
-    if (!enc) {
+    int idx = rb_enc_get_index(obj);
+    if (idx < 0) {
 	rb_raise(rb_eTypeError, "unknown encoding");
     }
-    return rb_enc_from_encoding(enc);
+    return rb_enc_from_encoding_index(idx);
 }
 
 int
@@ -1034,17 +1055,23 @@ enc_list(VALUE klass)
 static VALUE
 enc_find(VALUE klass, VALUE enc)
 {
-    return rb_enc_from_encoding(to_encoding(enc));
+    int idx;
+    if (RB_TYPE_P(enc, T_DATA) && is_data_encoding(enc))
+	return enc;
+    idx = str_to_encindex(enc);
+    if (idx == UNSPECIFIED_ENCODING) return Qnil;
+    return rb_enc_from_encoding_index(idx);
 }
 
 /*
  * call-seq:
- *   Encoding.compatible?(str1, str2) -> enc or nil
+ *   Encoding.compatible?(obj1, obj2) -> enc or nil
  *
- * Checks the compatibility of two strings.
- * If they are compatible, means concatenatable,
- * returns an encoding which the concatenated string will be.
- * If they are not compatible, nil is returned.
+ * Checks the compatibility of two objects.
+ *
+ * If the objects are both strings they are compatible when they are
+ * concatenatable.  The encoding of the concatenated string will be returned
+ * if they are compatible, nil if they are not.
  *
  *   Encoding.compatible?("\xa1".force_encoding("iso-8859-1"), "b")
  *   #=> #<Encoding:ISO-8859-1>
@@ -1053,6 +1080,11 @@ enc_find(VALUE klass, VALUE enc)
  *     "\xa1".force_encoding("iso-8859-1"),
  *     "\xa1\xa1".force_encoding("euc-jp"))
  *   #=> nil
+ *
+ * If the objects are non-strings their encodings are compatible when they
+ * have an encoding and:
+ * * Either encoding is US ASCII compatible
+ * * One of the encodings is a 7-bit encoding
  *
  */
 static VALUE
@@ -1243,7 +1275,25 @@ rb_enc_default_external(void)
  *
  * Returns default external encoding.
  *
- * It is initialized by the locale or -E option.
+ * The default external encoding is used by default for strings created from
+ * the following locations:
+ *
+ * * CSV
+ * * File data read from disk
+ * * SDBM
+ * * StringIO
+ * * Zlib::GzipReader
+ * * Zlib::GzipWriter
+ * * String#inspect
+ * * Regexp#inspect
+ *
+ * While strings created from these locations will have this encoding, the
+ * encoding may not be valid.  Be sure to check String#valid_encoding?.
+ *
+ * File data written to disk will be transcoded to the default external
+ * encoding when written.
+ *
+ * The default external encoding is initialized by the locale or -E option.
  */
 static VALUE
 get_default_external(VALUE klass)
@@ -1265,7 +1315,14 @@ rb_enc_set_default_external(VALUE encoding)
  * call-seq:
  *   Encoding.default_external = enc
  *
- * Sets default external encoding.
+ * Sets default external encoding.  You should not set
+ * Encoding::default_external in ruby code as strings created before changing
+ * the value may have a different encoding from strings created after thevalue
+ * was changed., instead you should use <tt>ruby -E</tt> to invoke ruby with
+ * the correct default_external.
+ *
+ * See Encoding::default_external for information on how the default external
+ * encoding is used.
  */
 static VALUE
 set_default_external(VALUE klass, VALUE encoding)
@@ -1297,9 +1354,32 @@ rb_enc_default_internal(void)
  * call-seq:
  *   Encoding.default_internal -> enc
  *
- * Returns default internal encoding.
+ * Returns default internal encoding.  Strings will be transcoded to the
+ * default internal encoding in the following places if the default internal
+ * encoding is not nil:
  *
- * It is initialized by the source internal_encoding or -E option.
+ * * CSV
+ * * Etc.sysconfdir and Etc.systmpdir
+ * * File data read from disk
+ * * File names from Dir
+ * * Integer#chr
+ * * String#inspect and Regexp#inspect
+ * * Strings returned from Curses
+ * * Strings returned from Readline
+ * * Strings returned from SDBM
+ * * Time#zone
+ * * Values from ENV
+ * * Values in ARGV including $PROGRAM_NAME
+ * * __FILE__
+ *
+ * Additionally String#encode and String#encode! use the default internal
+ * encoding if no encoding is given.
+ *
+ * The locale encoding (__ENCODING__), not default_internal, is used as the
+ * encoding of created strings.
+ *
+ * Encoding::default_internal is initialized by the source file's
+ * internal_encoding or -E option.
  */
 static VALUE
 get_default_internal(VALUE klass)
@@ -1318,8 +1398,14 @@ rb_enc_set_default_internal(VALUE encoding)
  * call-seq:
  *   Encoding.default_internal = enc or nil
  *
- * Sets default internal encoding.
- * Or removes default internal encoding when passed nil.
+ * Sets default internal encoding or removes default internal encoding when
+ * passed nil.  You should not set Encoding::default_internal in ruby code as
+ * strings created before changing the value may have a different encoding
+ * from strings created after the change.  Instead you should use
+ * <tt>ruby -E</tt> to invoke ruby with the correct default_internal.
+ *
+ * See Encoding::default_internal for information on how the default internal
+ * encoding is used.
  */
 static VALUE
 set_default_internal(VALUE klass, VALUE encoding)
@@ -1360,11 +1446,16 @@ rb_locale_charmap(VALUE klass)
 #if defined NO_LOCALE_CHARMAP
     return rb_usascii_str_new2("ASCII-8BIT");
 #elif defined _WIN32 || defined __CYGWIN__
-    const char *nl_langinfo_codeset(void);
-    const char *codeset = nl_langinfo_codeset();
+    const char *codeset = 0;
     char cp[sizeof(int) * 3 + 4];
+# ifdef __CYGWIN__
+    const char *nl_langinfo_codeset(void);
+    codeset = nl_langinfo_codeset();
+# endif
     if (!codeset) {
-	snprintf(cp, sizeof(cp), "CP%d", GetConsoleCP());
+	UINT codepage = GetConsoleCP();
+	if(!codepage) codepage = GetACP();
+	snprintf(cp, sizeof(cp), "CP%d", codepage);
 	codeset = cp;
     }
     return rb_usascii_str_new2(codeset);
@@ -1553,7 +1644,7 @@ Init_Encoding(void)
 /* locale insensitive ctype functions */
 
 #define ctype_test(c, ctype) \
-    (rb_isascii(c) && ONIGENC_IS_ASCII_CODE_CTYPE((c), ctype))
+    (rb_isascii(c) && ONIGENC_IS_ASCII_CODE_CTYPE((c), (ctype)))
 
 int rb_isalnum(int c) { return ctype_test(c, ONIGENC_CTYPE_ALNUM); }
 int rb_isalpha(int c) { return ctype_test(c, ONIGENC_CTYPE_ALPHA); }

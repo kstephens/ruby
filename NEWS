@@ -8,90 +8,62 @@ Note that each entry is kept so brief that no reason behind or
 reference information is supplied with.  For a full list of changes
 with all sufficient information, see the ChangeLog file.
 
-== Changes since the 1.9.2 release
-=== License
-
-* Ruby's License is changed from a dual license with GPLv2
-  to a dual license with 2-clause BSDL.
+== Changes since the 1.9.3 release
 
 === C API updates
-
-* rb_scan_args() is enhanced with support for option hash argument
-  extraction.
+* NUM2SHORT() and NUM2USHORT() added. They are similar to NUM2INT, but short.
 
 === Library updates (outstanding ones only)
 
 * builtin classes
 
   * Kernel
+    * extended method:
+      * Kernel#warn accepts multiple args in like puts.
+    * incompatible changes:
+      * system() and exec() closes non-standard file descriptors
+        (The default of :close_others option is changed to true by default.)
 
-    * Kernel#respond_to? now returns false for protected methods.
-
-  * Float
-    * new constants:
-      * File::NULL
-        name of NULL device.
-    * extended methods:
-      * String#unpack supports endian modifiers
-
-  * String
-    * new methods:
-      * String#prepend
+  * Signal
+    * incompatible changes:
+      * Signal.trap raises ArgumentError when :SEGV, :BUS, :ILL, :FPE, :VTALRM
+        are specified.
 
   * Time
-    * extended methods:
-      * Time#strftime supports %:z and %::z.
+    * change return value:
+      * Time#to_s returned encoding defaults to US-ASCII but automatically
+        transcodes to Encoding.default_internal if it is set.
 
-  * IO
-    * extended methods:
-      * IO#putc supports multibyte characters
+  * Fiber
+    * incompatible changes:
+      * Fiber#resume cannot resume a fiber which invokes "Fiber#transfer".
 
-  * Array
-    * extended methods:
-      * Array#pack supports endian modifiers
-
-* io/console
+* net/imap
   * new methods:
-    * IO#noecho {|io| }
-    * IO#echo=
-    * IO#echo?
-    * IO#raw {|io| }
-    * IO#raw!
-    * IO#getch
-    * IO#winsize
-    * IO.console
+    * Net::IMAP.default_port
+    * Net::IMAP.default_imap_port
+    * Net::IMAP.default_tls_port
+    * Net::IMAP.default_ssl_port
+    * Net::IMAP.default_imaps_port
 
-* webrick
-  * new method:
-    * WEBrick::HTTPRequest#continue for generating '100 continue' response.
+* pathname
+  * extended method:
+    * Pathname#find returns an enumerator if no block is given.
 
-* uri
+* resolv
   * new methods:
-    * URI::Generic#hostname
-    * URI::Generic#hostname=
-
-* stringio
-  * extended methods:
-    * StringIO#set_encoding can get 2nd argument and optional hash.
-
-* rexml
-  * [incompatible] support Ruby native encoding mechanism
-    and iconv dependency is droped. This means encoding
-    methods (Document#encoding, XMLDecl#encoding,
-    Output#encoding and Source#encoding) return an Encoding
-    object instead of an encoding name.
+    * Resolv::DNS#timeouts=
+    * Resolv::DNS::Config#timeouts=
 
 === Language changes
-
-* Regexps now support Unicode 6.0 (new characters and scripts)
-
 === Compatibility issues (excluding feature bug fixes)
 
-* Kernel#respond_to?
+  * Signal.trap
 
-  See above.
+    See above.
 
-* REXML::Document#encoding, REXML::XMLDecl#encoding,
-  REXML::Output#encoding and REXML::Source#encoding
-
-  Return an Encoding object not encoding name as a String.
+  * incompatible changes:
+    The :close_others option is true by default for system() and exec().
+    Also, the close-on-exec flag is set by default for all new file descriptors.
+    This means file descriptors doesn't inherit to spawned process unless
+    explicitly requested such as system(..., fd=>fd).

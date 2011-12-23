@@ -10,12 +10,18 @@
 
 
 #include "ruby/ruby.h"
+#include "addr2line.h"
 #include "vm_core.h"
+
+/* see vm_insnhelper.h for the values */
+#ifndef VMDEBUG
+#define VMDEBUG 0
+#endif
 
 #define MAX_POSBUF 128
 
 #define VM_CFP_CNT(th, cfp) \
-  ((rb_control_frame_t *)(th->stack + th->stack_size) - (rb_control_frame_t *)(cfp))
+  ((rb_control_frame_t *)((th)->stack + (th)->stack_size) - (rb_control_frame_t *)(cfp))
 
 static void
 control_frame_dump(rb_thread_t *th, rb_control_frame_t *cfp)
@@ -584,6 +590,12 @@ bugreport_backtrace(void *arg, VALUE file, int line, VALUE method)
     return 0;
 }
 
+#if defined(__FreeBSD__) && defined(__OPTIMIZE__)
+#undef HAVE_BACKTRACE
+#endif
+#ifndef HAVE_BACKTRACE
+#define HAVE_BACKTRACE 0
+#endif
 #if HAVE_BACKTRACE
 # include <execinfo.h>
 #elif defined(_WIN32)
@@ -684,7 +696,7 @@ dump_thread(void *arg)
 	SymSetOptions(SYMOPT_UNDNAME | SYMOPT_DEFERRED_LOADS | SYMOPT_DEBUG | SYMOPT_LOAD_LINES);
 	ph = GetCurrentProcess();
 	pSymInitialize(ph, NULL, TRUE);
-	th = pOpenThread(THREAD_ALL_ACCESS, FALSE, tid);
+	th = pOpenThread(THREAD_SUSPEND_RESUME|THREAD_GET_CONTEXT, FALSE, tid);
 	if (th) {
 	    if (SuspendThread(th) != (DWORD)-1) {
 		CONTEXT context;
@@ -727,6 +739,8 @@ dump_thread(void *arg)
 					NULL, NULL, NULL)) {
 			DWORD64 addr = frame.AddrPC.Offset;
 			IMAGEHLP_LINE64 line;
+			DWORD64 displacement;
+			DWORD tmp;
 
 			if (addr == frame.AddrReturn.Offset || addr == 0 ||
 			    frame.AddrReturn.Offset == 0)
@@ -735,17 +749,18 @@ dump_thread(void *arg)
 			memset(buf, 0, sizeof(buf));
 			info->SizeOfStruct = sizeof(SYMBOL_INFO);
 			info->MaxNameLen = MAX_SYM_NAME;
-			if (pSymFromAddr(ph, addr, NULL, info)) {
+			if (pSymFromAddr(ph, addr, &displacement, info)) {
 			    if (GetModuleFileName((HANDLE)(uintptr_t)pSymGetModuleBase64(ph, addr), libpath, sizeof(libpath)))
 				fprintf(stderr, "%s", libpath);
-			    fprintf(stderr, "(%s)", info->Name);
+			    fprintf(stderr, "(%s+0x%I64x)",
+				    info->Name, displacement);
 			}
-
+			fprintf(stderr, " [0x%p]", (void *)(VALUE)addr);
 			memset(&line, 0, sizeof(line));
 			line.SizeOfStruct = sizeof(line);
-			if (pSymGetLineFromAddr64(ph, addr, NULL, &line))
+			if (pSymGetLineFromAddr64(ph, addr, &tmp, &line))
 			    fprintf(stderr, " %s:%lu", line.FileName, line.LineNumber);
-			fprintf(stderr, " [0x%"PRIxVALUE"]\n", addr);
+			fprintf(stderr, "\n");
 		    }
 		}
 
@@ -762,7 +777,15 @@ dump_thread(void *arg)
 void
 rb_vm_bugreport(void)
 {
-    rb_vm_t *vm = GET_VM();
+#ifdef __linux__
+# define PROC_MAPS_NAME "/proc/self/maps"
+#endif
+#ifdef PROC_MAPS_NAME
+    enum {other_runtime_info = 1};
+#else
+    enum {other_runtime_info = 0};
+#endif
+    const rb_vm_t *const vm = GET_VM();
     if (vm) {
 	int i = 0;
 	SDR();
@@ -777,17 +800,27 @@ rb_vm_bugreport(void)
 	    "-------------------------------------------\n");
 
     {
-#if HAVE_BACKTRACE
+#if defined __MACH__ && defined __APPLE__
+	fprintf(stderr, "\n");
+	fprintf(stderr, "   See Crash Report log file under "
+		"~/Library/Logs/CrashReporter or\n");
+	fprintf(stderr, "   /Library/Logs/CrashReporter, for "
+		"the more detail of.\n");
+#elif HAVE_BACKTRACE
 #define MAX_NATIVE_TRACE 1024
 	static void *trace[MAX_NATIVE_TRACE];
 	int n = backtrace(trace, MAX_NATIVE_TRACE);
 	char **syms = backtrace_symbols(trace, n);
-	int i;
 
 	if (syms) {
+#ifdef USE_ELF
+	    rb_dump_backtrace_with_lines(n, trace, syms);
+#else
+	    int i;
 	    for (i=0; i<n; i++) {
 		fprintf(stderr, "%s\n", syms[i]);
 	    }
+#endif
 	    free(syms);
 	}
 #elif defined(_WIN32)
@@ -801,29 +834,37 @@ rb_vm_bugreport(void)
     fprintf(stderr, "\n");
 #endif /* HAVE_BACKTRACE */
 
-    fprintf(stderr, "-- Other runtime information "
-	    "-----------------------------------------------\n\n");
-    {
+    if (other_runtime_info || vm) {
+	fprintf(stderr, "-- Other runtime information "
+		"-----------------------------------------------\n\n");
+    }
+    if (vm) {
 	int i;
+	VALUE name;
 
-	fprintf(stderr, "* Loaded script: %s\n", StringValueCStr(vm->progname));
+	name = vm->progname;
+	fprintf(stderr, "* Loaded script: %s\n", StringValueCStr(name));
 	fprintf(stderr, "\n");
 	fprintf(stderr, "* Loaded features:\n\n");
 	for (i=0; i<RARRAY_LEN(vm->loaded_features); i++) {
-	    fprintf(stderr, " %4d %s\n", i, StringValueCStr(RARRAY_PTR(vm->loaded_features)[i]));
+	    name = RARRAY_PTR(vm->loaded_features)[i];
+	    fprintf(stderr, " %4d %s\n", i, StringValueCStr(name));
 	}
 	fprintf(stderr, "\n");
+    }
 
-#if __linux__
+    {
+#ifdef PROC_MAPS_NAME
 	{
-	    FILE *fp = fopen("/proc/self/maps", "r");
+	    FILE *fp = fopen(PROC_MAPS_NAME, "r");
 	    if (fp) {
 		fprintf(stderr, "* Process memory map:\n\n");
 
 		while (!feof(fp)) {
 		    char buff[0x100];
 		    size_t rn = fread(buff, 1, 0x100, fp);
-		    fwrite(buff, 1, rn, stderr);
+		    if (fwrite(buff, 1, rn, stderr) != rn)
+			break;
 		}
 
 		fclose(fp);

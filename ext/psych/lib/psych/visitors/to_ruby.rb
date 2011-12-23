@@ -1,14 +1,18 @@
 require 'psych/scalar_scanner'
 
+unless defined?(Regexp::NOENCODING)
+  Regexp::NOENCODING = 32
+end
+
 module Psych
   module Visitors
     ###
     # This class walks a YAML AST, converting each node to ruby
     class ToRuby < Psych::Visitors::Visitor
-      def initialize
-        super
+      def initialize ss = ScalarScanner.new
+        super()
         @st = {}
-        @ss = ScalarScanner.new
+        @ss = ss
         @domain_types = Psych.domain_types
       end
 
@@ -27,9 +31,7 @@ module Psych
         result
       end
 
-      def visit_Psych_Nodes_Scalar o
-        @st[o.anchor] = o.value if o.anchor
-
+      def deserialize o
         if klass = Psych.load_tags[o.tag]
           instance = klass.allocate
 
@@ -50,6 +52,9 @@ module Psych
           o.value.unpack('m').first
         when '!str', 'tag:yaml.org,2002:str'
           o.value
+        when '!ruby/object:BigDecimal'
+          require 'bigdecimal'
+          BigDecimal._load o.value
         when "!ruby/object:DateTime"
           require 'date'
           @ss.parse_time(o.value).to_datetime
@@ -57,10 +62,12 @@ module Psych
           Complex(o.value)
         when "!ruby/object:Rational"
           Rational(o.value)
+        when "!ruby/class", "!ruby/module"
+          resolve_class o.value
         when "tag:yaml.org,2002:float", "!float"
           Float(@ss.tokenize(o.value))
         when "!ruby/regexp"
-          o.value =~ /^\/(.*)\/([mix]*)$/
+          o.value =~ /^\/(.*)\/([mixn]*)$/
           source  = $1
           options = 0
           lang    = nil
@@ -69,6 +76,7 @@ module Psych
             when 'x' then options |= Regexp::EXTENDED
             when 'i' then options |= Regexp::IGNORECASE
             when 'm' then options |= Regexp::MULTILINE
+            when 'n' then options |= Regexp::NOENCODING
             else lang = option
             end
           end
@@ -84,6 +92,11 @@ module Psych
         else
           @ss.tokenize o.value
         end
+      end
+      private :deserialize
+
+      def visit_Psych_Nodes_Scalar o
+        register o, deserialize(o)
       end
 
       def visit_Psych_Nodes_Sequence o
@@ -101,15 +114,13 @@ module Psych
 
         case o.tag
         when '!omap', 'tag:yaml.org,2002:omap'
-          map = Psych::Omap.new
-          @st[o.anchor] = map if o.anchor
+          map = register(o, Psych::Omap.new)
           o.children.each { |a|
             map[accept(a.children.first)] = accept a.children.last
           }
           map
         else
-          list = []
-          @st[o.anchor] = list if o.anchor
+          list = register(o, [])
           o.children.each { |c| list.push accept c }
           list
         end
@@ -117,6 +128,7 @@ module Psych
 
       def visit_Psych_Nodes_Mapping o
         return revive(Psych.load_tags[o.tag], o) if Psych.load_tags[o.tag]
+        return revive_hash({}, o) unless o.tag
 
         case o.tag
         when '!str', 'tag:yaml.org,2002:str'
@@ -127,8 +139,7 @@ module Psych
           klass = resolve_class($1)
 
           if klass
-            s = klass.allocate
-            @st[o.anchor] = s if o.anchor
+            s = register(o, klass.allocate)
 
             members = {}
             struct_members = s.members.map { |x| x.to_sym }
@@ -150,7 +161,7 @@ module Psych
 
         when '!ruby/range'
           h = Hash[*o.children.map { |c| accept c }]
-          Range.new(h['begin'], h['end'], h['excl'])
+          register o, Range.new(h['begin'], h['end'], h['excl'])
 
         when /^!ruby\/exception:?(.*)?$/
           h = Hash[*o.children.map { |c| accept c }]
@@ -169,38 +180,22 @@ module Psych
 
         when '!ruby/object:Complex'
           h = Hash[*o.children.map { |c| accept c }]
-          Complex(h['real'], h['image'])
+          register o, Complex(h['real'], h['image'])
 
         when '!ruby/object:Rational'
           h = Hash[*o.children.map { |c| accept c }]
-          Rational(h['numerator'], h['denominator'])
+          register o, Rational(h['numerator'], h['denominator'])
 
         when /^!ruby\/object:?(.*)?$/
           name = $1 || 'Object'
           obj = revive((resolve_class(name) || Object), o)
-          @st[o.anchor] = obj if o.anchor
           obj
+
+        when /^!map:(.*)$/, /^!ruby\/hash:(.*)$/
+          revive_hash resolve_class($1).new, o
+
         else
-          hash = {}
-          @st[o.anchor] = hash if o.anchor
-
-          o.children.each_slice(2) { |k,v|
-            key = accept(k)
-
-            if key == '<<' && Nodes::Alias === v
-              # FIXME: remove this when "<<" syntax is deprecated
-              if $VERBOSE
-                where = caller.find { |x| x !~ /psych/ }
-                warn where
-                warn "\"<<: *#{v.anchor}\" is no longer supported, please switch to \"*#{v.anchor}\""
-              end
-              return accept(v)
-            else
-              hash[key] = accept(v)
-            end
-
-          }
-          hash
+          revive_hash({}, o)
         end
       end
 
@@ -213,12 +208,43 @@ module Psych
       end
 
       def visit_Psych_Nodes_Alias o
-        @st[o.anchor]
+        @st.fetch(o.anchor) { raise BadAlias, "Unknown alias: #{o.anchor}" }
       end
 
       private
+      def register node, object
+        @st[node.anchor] = object if node.anchor
+        object
+      end
+
+      def revive_hash hash, o
+        @st[o.anchor] = hash if o.anchor
+
+          o.children.each_slice(2) { |k,v|
+          key = accept(k)
+
+          if key == '<<'
+            case v
+            when Nodes::Alias
+              hash.merge! accept(v)
+            when Nodes::Sequence
+              accept(v).reverse_each do |value|
+                hash.merge! value
+              end
+            else
+              hash[key] = accept(v)
+            end
+          else
+            hash[key] = accept(v)
+          end
+
+        }
+        hash
+      end
+
       def revive klass, node
         s = klass.allocate
+        @st[node.anchor] = s if node.anchor
         h = Hash[*node.children.map { |c| accept c }]
         init_with(s, h, node)
       end

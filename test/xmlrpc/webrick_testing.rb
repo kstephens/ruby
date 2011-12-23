@@ -13,13 +13,19 @@ module WEBrick_Testing
     @__server_thread = Thread.new {
       @__server = WEBrick::HTTPServer.new(
         {
+          :BindAddress => "localhost",
           :Logger => DummyLog.new,
           :AccessLog => [],
           :StartCallback => proc { @__started = true }
         }.update(config))
       yield @__server
-      @__server.start
-      @__started = false
+      begin
+        @__server.start
+      rescue IOError => e
+        assert_match(/closed/, e.message)
+      ensure
+        @__started = false
+      end
     }
 
     Timeout.timeout(5) {

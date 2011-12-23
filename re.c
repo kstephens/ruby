@@ -13,6 +13,7 @@
 #include "ruby/re.h"
 #include "ruby/encoding.h"
 #include "ruby/util.h"
+#include "internal.h"
 #include "regint.h"
 #include <ctype.h>
 
@@ -21,8 +22,8 @@ VALUE rb_eRegexpError;
 typedef char onig_errmsg_buffer[ONIG_MAX_ERROR_MESSAGE_LEN];
 #define errcpy(err, msg) strlcpy((err), (msg), ONIG_MAX_ERROR_MESSAGE_LEN)
 
-#define BEG(no) regs->beg[no]
-#define END(no) regs->end[no]
+#define BEG(no) (regs->beg[(no)])
+#define END(no) (regs->end[(no)])
 
 #if 'a' == 97   /* it's ascii */
 static const char casetable[] = {
@@ -314,18 +315,19 @@ rb_reg_check(VALUE re)
     }
 }
 
-int rb_str_buf_cat_escaped_char(VALUE result, unsigned int c, int unicode_p);
-
 static void
 rb_reg_expr_str(VALUE str, const char *s, long len,
 	rb_encoding *enc, rb_encoding *resenc)
 {
     const char *p, *pend;
+    int cr = ENC_CODERANGE_UNKNOWN;
     int need_escape = 0;
     int c, clen;
 
     p = s; pend = p + len;
-    if (rb_enc_asciicompat(enc)) {
+    rb_str_coderange_scan_restartable(p, pend, enc, &cr);
+    if (rb_enc_asciicompat(enc) &&
+	(cr == ENC_CODERANGE_VALID || cr == ENC_CODERANGE_7BIT)) {
 	while (p < pend) {
 	    c = rb_enc_ascget(p, pend, &clen, enc);
 	    if (c == -1) {
@@ -587,7 +589,7 @@ rb_reg_to_s(VALUE re)
 static void
 rb_reg_raise(const char *s, long len, const char *err, VALUE re)
 {
-    VALUE desc = rb_reg_desc(s, len, re);
+    volatile VALUE desc = rb_reg_desc(s, len, re);
 
     rb_raise(rb_eRegexpError, "%s: %s", err, RSTRING_PTR(desc));
 }
@@ -1672,11 +1674,12 @@ name_to_backref_number(struct re_registers *regs, VALUE regexp, const char* name
  *     mtch[range]           -> array
  *     mtch[name]            -> str or nil
  *
- *  Match Reference---<code>MatchData</code> acts as an array, and may be
- *  accessed using the normal array indexing techniques.  <i>mtch</i>[0] is
- *  equivalent to the special variable <code>$&</code>, and returns the entire
- *  matched string.  <i>mtch</i>[1], <i>mtch</i>[2], and so on return the values
- *  of the matched backreferences (portions of the pattern between parentheses).
+ *  Match Reference -- <code>MatchData</code> acts as an array, and may be
+ *  accessed using the normal array indexing techniques.  <code>mtch[0]</code>
+ *  is equivalent to the special variable <code>$&</code>, and returns the
+ *  entire matched string.  <code>mtch[1]</code>, <code>mtch[2]</code>, and so
+ *  on return the values of the matched backreferences (portions of the
+ *  pattern between parentheses).
  *
  *     m = /(.)(.)(\d+)(\d)/.match("THX1138.")
  *     m          #=> #<MatchData "HX1138" 1:"H" 2:"X" 3:"113" 4:"8">
@@ -2384,8 +2387,8 @@ rb_reg_initialize(VALUE obj, const char *s, long len, rb_encoding *enc,
     re->ptr = 0;
 
     if (rb_enc_dummy_p(enc)) {
-	    errcpy(err, "can't make regexp with dummy encoding");
-	    return -1;
+	errcpy(err, "can't make regexp with dummy encoding");
+	return -1;
     }
 
     unescaped = rb_reg_preprocess(s, s+len, enc, &fixed_enc, err);
@@ -2443,6 +2446,7 @@ rb_reg_initialize_str(VALUE obj, VALUE str, int options, onig_errmsg_buffer err,
     }
     ret = rb_reg_initialize(obj, RSTRING_PTR(str), RSTRING_LEN(str), enc,
 			    options, err, sourcefile, sourceline);
+    OBJ_INFECT(obj, str);
     RB_GC_GUARD(str);
     return ret;
 }
@@ -2584,7 +2588,7 @@ static VALUE
 rb_reg_equal(VALUE re1, VALUE re2)
 {
     if (re1 == re2) return Qtrue;
-    if (TYPE(re2) != T_REGEXP) return Qfalse;
+    if (!RB_TYPE_P(re2, T_REGEXP)) return Qfalse;
     rb_reg_check(re1); rb_reg_check(re2);
     if (FL_TEST(re1, KCODE_FIXED) != FL_TEST(re2, KCODE_FIXED)) return Qfalse;
     if (RREGEXP(re1)->ptr->options != RREGEXP(re2)->ptr->options) return Qfalse;
@@ -2632,7 +2636,7 @@ match_equal(VALUE match1, VALUE match2)
 {
     const struct re_registers *regs1, *regs2;
     if (match1 == match2) return Qtrue;
-    if (TYPE(match2) != T_MATCH) return Qfalse;
+    if (!RB_TYPE_P(match2, T_MATCH)) return Qfalse;
     if (!rb_str_equal(RMATCH(match1)->str, RMATCH(match2)->str)) return Qfalse;
     if (!rb_reg_equal(RMATCH(match1)->regexp, RMATCH(match2)->regexp)) return Qfalse;
     regs1 = RMATCH_REGS(match1);
@@ -2709,7 +2713,7 @@ reg_match_pos(VALUE re, VALUE *strp, long pos)
  *  The parser detects 'regexp-literal =~ expression' for the assignment.
  *  The regexp must be a literal without interpolation and placed at left hand side.
  *
- *  The assignment is not occur if the regexp is not a literal.
+ *  The assignment does not occur if the regexp is not a literal.
  *
  *     re = /(?<lhs>\w+)\s*=\s*(?<rhs>\w+)/
  *     re =~ "  x = y  "
@@ -2723,7 +2727,7 @@ reg_match_pos(VALUE re, VALUE *strp, long pos)
  *     /(?<lhs>\w+)\s*=\s*#{rhs_pat}/ =~ "x = y"
  *     p lhs    # undefined local variable
  *
- *  The assignment is not occur if the regexp is placed at right hand side.
+ *  The assignment does not occur if the regexp is placed at the right hand side.
  *
  *    "  x = y  " =~ /(?<lhs>\w+)\s*=\s*(?<rhs>\w+)/
  *    p lhs, rhs # undefined local variable
@@ -2792,7 +2796,7 @@ rb_reg_match2(VALUE re)
     long start;
     VALUE line = rb_lastline_get();
 
-    if (TYPE(line) != T_STRING) {
+    if (!RB_TYPE_P(line, T_STRING)) {
 	rb_backref_set(Qnil);
 	return Qnil;
     }
@@ -3281,7 +3285,7 @@ rb_reg_regsub(VALUE str, VALUE src, struct re_registers *regs, VALUE regexp)
     rb_encoding *str_enc = rb_enc_get(str);
     rb_encoding *src_enc = rb_enc_get(src);
     int acompat = rb_enc_asciicompat(str_enc);
-#define ASCGET(s,e,cl) (acompat ? (*cl=1,ISASCII(s[0])?s[0]:-1) : rb_enc_ascget(s, e, cl, str_enc))
+#define ASCGET(s,e,cl) (acompat ? (*(cl)=1,ISASCII((s)[0])?(s)[0]:-1) : rb_enc_ascget((s), (e), (cl), str_enc))
 
     p = s = RSTRING_PTR(str);
     e = s + RSTRING_LEN(str);
@@ -3554,10 +3558,16 @@ Init_Regexp(void)
     rb_define_method(rb_cRegexp, "names", rb_reg_names, 0);
     rb_define_method(rb_cRegexp, "named_captures", rb_reg_named_captures, 0);
 
+    /* see Regexp.options and Regexp.new */
     rb_define_const(rb_cRegexp, "IGNORECASE", INT2FIX(ONIG_OPTION_IGNORECASE));
+    /* see Regexp.options and Regexp.new */
     rb_define_const(rb_cRegexp, "EXTENDED", INT2FIX(ONIG_OPTION_EXTEND));
+    /* see Regexp.options and Regexp.new */
     rb_define_const(rb_cRegexp, "MULTILINE", INT2FIX(ONIG_OPTION_MULTILINE));
+    /* see Regexp.options and Regexp.new */
     rb_define_const(rb_cRegexp, "FIXEDENCODING", INT2FIX(ARG_ENCODING_FIXED));
+    /* see Regexp.options and Regexp.new */
+    rb_define_const(rb_cRegexp, "NOENCODING", INT2FIX(ARG_ENCODING_NONE));
 
     rb_global_variable(&reg_cache);
 

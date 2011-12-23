@@ -14,6 +14,7 @@
 #include "ruby/st.h"
 #include "ruby/util.h"
 #include "ruby/encoding.h"
+#include "internal.h"
 
 #include <math.h>
 #ifdef HAVE_FLOAT_H
@@ -25,7 +26,7 @@
 
 #define BITSPERSHORT (2*CHAR_BIT)
 #define SHORTMASK ((1<<BITSPERSHORT)-1)
-#define SHORTDN(x) RSHIFT(x,BITSPERSHORT)
+#define SHORTDN(x) RSHIFT((x),BITSPERSHORT)
 
 #if SIZEOF_SHORT == SIZEOF_BDIGITS
 #define SHORTLEN(x) (x)
@@ -81,8 +82,6 @@ shortlen(long len, BDIGIT *ds)
 static ID s_dump, s_load, s_mdump, s_mload;
 static ID s_dump_data, s_load_data, s_alloc, s_call;
 static ID s_getbyte, s_read, s_write, s_binmode;
-
-ID rb_id_encoding(void);
 
 typedef struct {
     VALUE newclass;
@@ -211,7 +210,7 @@ class2path(VALUE klass)
     VALUE path = rb_class_path(klass);
     const char *n;
 
-    n = must_not_be_anonymous((TYPE(klass) == T_CLASS ? "class" : "module"), path);
+    n = must_not_be_anonymous((RB_TYPE_P(klass, T_CLASS) ? "class" : "module"), path);
     if (rb_path_to_class(path) != rb_class_real(klass)) {
 	rb_raise(rb_eTypeError, "%s can't be referred to", n);
     }
@@ -246,7 +245,7 @@ w_bytes(const char *s, long n, struct dump_arg *arg)
     w_nbyte(s, n, arg);
 }
 
-#define w_cstr(s, arg) w_bytes(s, strlen(s), arg)
+#define w_cstr(s, arg) w_bytes((s), strlen(s), (arg))
 
 static void
 w_short(int x, struct dump_arg *arg)
@@ -590,7 +589,7 @@ w_object(VALUE obj, struct dump_arg *arg, int limit)
     st_table *ivtbl = 0;
     st_data_t num;
     int hasiv = 0;
-#define has_ivars(obj, ivtbl) ((ivtbl = rb_generic_ivar_table(obj)) != 0 || \
+#define has_ivars(obj, ivtbl) (((ivtbl) = rb_generic_ivar_table(obj)) != 0 || \
 			       (!SPECIAL_CONST_P(obj) && !ENCODING_IS_ASCII8BIT(obj)))
 
     if (limit == 0) {
@@ -657,7 +656,7 @@ w_object(VALUE obj, struct dump_arg *arg, int limit)
 
 	    v = rb_funcall(obj, s_dump, 1, INT2NUM(limit));
 	    check_dump_arg(arg, s_dump);
-	    if (TYPE(v) != T_STRING) {
+	    if (!RB_TYPE_P(v, T_STRING)) {
 		rb_raise(rb_eTypeError, "_dump() must return string");
 	    }
 	    hasiv = has_ivars(obj, ivtbl);
@@ -825,7 +824,7 @@ w_object(VALUE obj, struct dump_arg *arg, int limit)
 
 		if (!rb_respond_to(obj, s_dump_data)) {
 		    rb_raise(rb_eTypeError,
-			     "no marshal_dump is defined for class %s",
+			     "no _dump_data is defined for class %s",
 			     rb_obj_classname(obj));
 		}
 		v = rb_funcall(obj, s_dump_data, 0);
@@ -864,7 +863,7 @@ clear_dump_arg(struct dump_arg *arg)
 
 /*
  * call-seq:
- *      dump( obj [, anIO] , limit=--1 ) -> anIO
+ *      dump( obj [, anIO] , limit=-1 ) -> anIO
  *
  * Serializes obj and all descendant objects. If anIO is
  * specified, the serialized data will be written to it, otherwise the
@@ -876,7 +875,7 @@ clear_dump_arg(struct dump_arg *arg)
  *       def initialize(str)
  *         @str = str
  *       end
- *       def sayHello
+ *       def say_hello
  *         @str
  *       end
  *     end
@@ -886,7 +885,7 @@ clear_dump_arg(struct dump_arg *arg)
  *     o = Klass.new("hello\n")
  *     data = Marshal.dump(o)
  *     obj = Marshal.load(data)
- *     obj.sayHello   #=> "hello\n"
+ *     obj.say_hello  #=> "hello\n"
  *
  * Marshal can't dump following objects:
  * * anonymous Class/Module.
@@ -1002,7 +1001,7 @@ static const rb_data_type_t load_arg_data = {
     {mark_load_arg, free_load_arg, memsize_load_arg,},
 };
 
-#define r_entry(v, arg) r_entry0(v, (arg)->data->num_entries, arg)
+#define r_entry(v, arg) r_entry0((v), (arg)->data->num_entries, (arg))
 static VALUE r_entry0(VALUE v, st_index_t num, struct load_arg *arg);
 static VALUE r_object(struct load_arg *arg);
 static ID r_symbol(struct load_arg *arg);
@@ -1272,7 +1271,7 @@ path2class(VALUE path)
 {
     VALUE v = rb_path_to_class(path);
 
-    if (TYPE(v) != T_CLASS) {
+    if (!RB_TYPE_P(v, T_CLASS)) {
 	rb_raise(rb_eArgError, "%.*s does not refer to class",
 		 (int)RSTRING_LEN(path), RSTRING_PTR(path));
     }
@@ -1284,7 +1283,7 @@ path2module(VALUE path)
 {
     VALUE v = rb_path_to_class(path);
 
-    if (TYPE(v) != T_MODULE) {
+    if (!RB_TYPE_P(v, T_MODULE)) {
 	rb_raise(rb_eArgError, "%.*s does not refer to module",
 		 (int)RSTRING_LEN(path), RSTRING_PTR(path));
     }
@@ -1365,11 +1364,11 @@ r_object0(struct load_arg *arg, int *ivp, VALUE extmod)
 		rb_raise(rb_eTypeError, "singleton can't be loaded");
 	    }
 	    v = r_object0(arg, 0, extmod);
-	    if (rb_special_const_p(v) || TYPE(v) == T_OBJECT || TYPE(v) == T_CLASS) {
+	    if (rb_special_const_p(v) || RB_TYPE_P(v, T_OBJECT) || RB_TYPE_P(v, T_CLASS)) {
 	      format_error:
 		rb_raise(rb_eArgError, "dump format error (user class)");
 	    }
-	    if (TYPE(v) == T_MODULE || !RTEST(rb_class_inherited_p(c, RBASIC(v)->klass))) {
+	    if (RB_TYPE_P(v, T_MODULE) || !RTEST(rb_class_inherited_p(c, RBASIC(v)->klass))) {
 		VALUE tmp = rb_obj_alloc(c);
 
 		if (TYPE(v) != TYPE(tmp)) goto format_error;
@@ -1555,7 +1554,7 @@ r_object0(struct load_arg *arg, int *ivp, VALUE extmod)
 	    long len = r_long(arg);
 
             v = rb_obj_alloc(klass);
-	    if (TYPE(v) != T_STRUCT) {
+	    if (!RB_TYPE_P(v, T_STRUCT)) {
 		rb_raise(rb_eTypeError, "class %s not a struct", rb_class2name(klass));
 	    }
 	    mem = rb_struct_s_members(klass);
@@ -1631,7 +1630,7 @@ r_object0(struct load_arg *arg, int *ivp, VALUE extmod)
 	{
 	    st_index_t idx = r_prepare(arg);
             v = obj_alloc_by_path(r_unique(arg), arg);
-	    if (TYPE(v) != T_OBJECT) {
+	    if (!RB_TYPE_P(v, T_OBJECT)) {
 		rb_raise(rb_eArgError, "dump format error");
 	    }
 	    v = r_entry0(v, idx, arg);
@@ -1655,7 +1654,7 @@ r_object0(struct load_arg *arg, int *ivp, VALUE extmod)
 	   else {
 	       v = rb_obj_alloc(klass);
 	   }
-           if (TYPE(v) != T_DATA) {
+           if (!RB_TYPE_P(v, T_DATA)) {
                rb_raise(rb_eArgError, "dump format error");
            }
            v = r_entry(v, arg);

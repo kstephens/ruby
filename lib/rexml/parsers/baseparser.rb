@@ -248,7 +248,7 @@ module REXML
             @document_status = :after_doctype
             @source.read if @source.buffer.size<2
             md = @source.match(/\s*/um, true)
-            if @source.encoding == ::Encoding::UTF_8
+            if @source.encoding == "UTF-8"
               @source.buffer.force_encoding(::Encoding::UTF_8)
             end
           end
@@ -346,7 +346,7 @@ module REXML
                 md = @source.match( COMMENT_PATTERN, true )
 
                 case md[1]
-                when /--/, /-$/
+                when /--/, /-\z/
                   raise REXML::ParseException.new("Malformed comment", @source)
                 end
 

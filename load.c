@@ -4,17 +4,18 @@
 
 #include "ruby/ruby.h"
 #include "ruby/util.h"
+#include "internal.h"
 #include "dln.h"
 #include "eval_intern.h"
 
 VALUE ruby_dln_librefs;
 
-#define IS_RBEXT(e) (strcmp(e, ".rb") == 0)
-#define IS_SOEXT(e) (strcmp(e, ".so") == 0 || strcmp(e, ".o") == 0)
+#define IS_RBEXT(e) (strcmp((e), ".rb") == 0)
+#define IS_SOEXT(e) (strcmp((e), ".so") == 0 || strcmp((e), ".o") == 0)
 #ifdef DLEXT2
-#define IS_DLEXT(e) (strcmp(e, DLEXT) == 0 || strcmp(e, DLEXT2) == 0)
+#define IS_DLEXT(e) (strcmp((e), DLEXT) == 0 || strcmp((e), DLEXT2) == 0)
 #else
-#define IS_DLEXT(e) (strcmp(e, DLEXT) == 0)
+#define IS_DLEXT(e) (strcmp((e), DLEXT) == 0)
 #endif
 
 
@@ -40,14 +41,6 @@ rb_get_expanded_load_path(void)
     VALUE ary;
     long i;
 
-    for (i = 0; i < RARRAY_LEN(load_path); ++i) {
-	VALUE str = rb_check_string_type(RARRAY_PTR(load_path)[i]);
-	if (NIL_P(str) || !rb_is_absolute_path(RSTRING_PTR(str)))
-	    goto relative_path_found;
-    }
-    return load_path;
-
-  relative_path_found:
     ary = rb_ary_new2(RARRAY_LEN(load_path));
     for (i = 0; i < RARRAY_LEN(load_path); ++i) {
 	VALUE path = rb_file_expand_path(RARRAY_PTR(load_path)[i], Qnil);
@@ -81,16 +74,27 @@ loaded_feature_path(const char *name, long vlen, const char *feature, long len,
 		    int type, VALUE load_path)
 {
     long i;
+    long plen;
+    const char *e;
 
+    if(vlen < len) return 0;
+    if (!strncmp(name+(vlen-len),feature,len)){
+	plen = vlen - len - 1;
+    } else {
+	for (e = name + vlen; name != e && *e != '.' && *e != '/'; --e);
+	if (*e!='.' ||
+	    e-name < len ||
+	    strncmp(e-len,feature,len) )
+	    return 0;
+	plen = e - name - len - 1;
+    }
     for (i = 0; i < RARRAY_LEN(load_path); ++i) {
 	VALUE p = RARRAY_PTR(load_path)[i];
 	const char *s = StringValuePtr(p);
 	long n = RSTRING_LEN(p);
 
-	if (vlen < n + len + 1) continue;
+	if (n != plen ) continue;
 	if (n && (strncmp(name, s, n) || name[n] != '/')) continue;
-	if (strncmp(name + n + 1, feature, len)) continue;
-	if (name[n+len+1] && name[n+len+1] != '.') continue;
 	switch (type) {
 	  case 's':
 	    if (IS_DLEXT(&name[n+len+1])) return p;
@@ -179,7 +183,7 @@ rb_feature_p(const char *feature, const char *ext, int rb, int expanded, const c
 	    fs.name = feature;
 	    fs.len = len;
 	    fs.type = type;
-	    fs.load_path = load_path ? load_path : rb_get_load_path();
+	    fs.load_path = load_path ? load_path : rb_get_expanded_load_path();
 	    fs.result = 0;
 	    st_foreach(loading_tbl, loaded_feature_path_i, (st_data_t)&fs);
 	    if ((f = fs.result) != 0) {
@@ -264,7 +268,6 @@ rb_provide(const char *feature)
 }
 
 NORETURN(static void load_failed(VALUE));
-VALUE rb_realpath_internal(VALUE basedir, VALUE path, int strict);
 
 static void
 rb_load_internal(VALUE fname, int wrap)
@@ -402,7 +405,15 @@ load_lock(const char *ftptr)
 	rb_warning("loading in progress, circular require considered harmful - %s", ftptr);
 	rb_backtrace();
     }
-    return RTEST(rb_barrier_wait((VALUE)data)) ? (char *)ftptr : 0;
+    switch (rb_barrier_wait((VALUE)data)) {
+      case Qfalse:
+	data = (st_data_t)ftptr;
+	st_delete(loading_tbl, &data, 0);
+	return 0;
+      case Qnil:
+	return 0;
+    }
+    return (char *)ftptr;
 }
 
 static void
@@ -412,14 +423,14 @@ load_unlock(const char *ftptr, int done)
 	st_data_t key = (st_data_t)ftptr;
 	st_data_t data;
 	st_table *loading_tbl = get_loading_table();
+	VALUE barrier;
 
-	if (st_delete(loading_tbl, &key, &data)) {
-	    VALUE barrier = (VALUE)data;
-	    xfree((char *)key);
-	    if (done)
-		rb_barrier_destroy(barrier);
-	    else
-		rb_barrier_release(barrier);
+	if (!st_lookup(loading_tbl, key, &data)) return;
+	barrier = (VALUE)data;
+	if (!(done ? rb_barrier_destroy(barrier) : rb_barrier_release(barrier))) {
+	    if (st_delete(loading_tbl, &key, &data)) {
+		xfree((char *)key);
+	    }
 	}
     }
 }
@@ -427,24 +438,33 @@ load_unlock(const char *ftptr, int done)
 
 /*
  *  call-seq:
- *     require(string)    -> true or false
+ *     require(name)    -> true or false
  *
- *  Ruby tries to load the library named _string_, returning
- *  +true+ if successful. If the filename does not resolve to
- *  an absolute path, it will be searched for in the directories listed
- *  in <code>$:</code>. If the file has the extension ``.rb'', it is
- *  loaded as a source file; if the extension is ``.so'', ``.o'', or
- *  ``.dll'', or whatever the default shared library extension is on
- *  the current platform, Ruby loads the shared library as a Ruby
- *  extension. Otherwise, Ruby tries adding ``.rb'', ``.so'', and so on
- *  to the name. The name of the loaded feature is added to the array in
- *  <code>$"</code>. A feature will not be loaded if its name already
- *  appears in <code>$"</code>. The file name is converted to an absolute
- *  path, so ``<code>require 'a'; require './a'</code>'' will not load
- *  <code>a.rb</code> twice.
+ *  Loads the given +name+, returning +true+ if successful and +false+ if the
+ *  feature is already loaded.
  *
- *     require "my-library.rb"
- *     require "db-driver"
+ *  If the filename does not resolve to an absolute path, it will be searched
+ *  for in the directories listed in <code>$LOAD_PATH</code> (<code>$:</code>).
+ *
+ *  If the filename has the extension ".rb", it is loaded as a source file; if
+ *  the extension is ".so", ".o", or ".dll", or the default shared library
+ *  extension on the current platform, Ruby loads the shared library as a
+ *  Ruby extension.  Otherwise, Ruby tries adding ".rb", ".so", and so on
+ *  to the name until found.  If the file named cannot be found, a LoadError
+ *  will be raised.
+ *
+ *  For Ruby extensions the filename given may use any shared library
+ *  extension.  For example, on Linux the socket extension is "socket.so" and
+ *  <code>require 'socket.dll'</code> will load the socket extension.
+ *
+ *  The absolute path of the loaded file is added to
+ *  <code>$LOADED_FEATURES</code> (<code>$"</code>).  A file will not be
+ *  loaded again if its path already appears in <code>$"</code>.  For example,
+ *  <code>require 'a'; require './a'</code> will not load <code>a.rb</code>
+ *  again.
+ *
+ *    require "my-library.rb"
+ *    require "db-driver"
  */
 
 VALUE
@@ -453,10 +473,17 @@ rb_f_require(VALUE obj, VALUE fname)
     return rb_require_safe(fname, rb_safe_level());
 }
 
+/*
+ * call-seq:
+ *   require_relative(string) -> true or false
+ *
+ * Ruby tries to load the library named _string_ relative to the requiring
+ * file's path.  If the file's path cannot be determined a LoadError is raised.
+ * If a file is loaded +true+ is returned and false otherwise.
+ */
 VALUE
 rb_f_require_relative(VALUE obj, VALUE fname)
 {
-    VALUE rb_current_realfilepath(void);
     VALUE base = rb_current_realfilepath();
     if (NIL_P(base)) {
 	rb_raise(rb_eLoadError, "cannot infer basepath");
@@ -695,7 +722,11 @@ rb_mod_autoload(VALUE mod, VALUE sym, VALUE file)
 static VALUE
 rb_mod_autoload_p(VALUE mod, VALUE sym)
 {
-    return rb_autoload_p(mod, rb_to_id(sym));
+    ID id = rb_check_id(&sym);
+    if (!id) {
+	return Qnil;
+    }
+    return rb_autoload_p(mod, id);
 }
 
 /*
@@ -712,7 +743,7 @@ rb_mod_autoload_p(VALUE mod, VALUE sym)
 static VALUE
 rb_f_autoload(VALUE obj, VALUE sym, VALUE file)
 {
-    VALUE klass = rb_vm_cbase();
+    VALUE klass = rb_class_real(rb_vm_cbase());
     if (NIL_P(klass)) {
 	rb_raise(rb_eTypeError, "Can not set autoload on singleton class");
     }
@@ -745,7 +776,7 @@ void
 Init_load()
 {
 #undef rb_intern
-#define rb_intern(str) rb_intern2(str, strlen(str))
+#define rb_intern(str) rb_intern2((str), strlen(str))
     rb_vm_t *vm = GET_VM();
     static const char var_load_path[] = "$:";
     ID id_load_path = rb_intern2(var_load_path, sizeof(var_load_path)-1);

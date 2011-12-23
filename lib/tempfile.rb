@@ -39,7 +39,7 @@ require 'thread'
 # that's it's unnecessary to explicitly delete a Tempfile after use, though
 # it's good practice to do so: not explicitly deleting unused Tempfiles can
 # potentially leave behind large amounts of tempfiles on the filesystem
-# until they're garbage collected. The existance of these temp files can make
+# until they're garbage collected. The existence of these temp files can make
 # it harder to determine a new Tempfile filename.
 #
 # Therefore, one should always call #unlink or close in an ensure block, like
@@ -79,7 +79,6 @@ require 'thread'
 # same Tempfile object from multiple threads then you should protect it with a
 # mutex.
 class Tempfile < DelegateClass(File)
-  MAX_TRY = 10  # :nodoc:
   include Dir::Tmpname
 
   # call-seq:
@@ -96,11 +95,11 @@ class Tempfile < DelegateClass(File)
   # element, and end with the second element. For example:
   #
   #   file = Tempfile.new('hello')
-  #   file.path  # => something like: "/tmp/foo2843-8392-92849382--0"
+  #   file.path  # => something like: "/tmp/hello2843-8392-92849382--0"
   #
   #   # Use the Array form to enforce an extension in the filename:
   #   file = Tempfile.new(['hello', '.jpg'])
-  #   file.path  # => something like: "/tmp/foo2843-8392-92849382--0.jpg"
+  #   file.path  # => something like: "/tmp/hello2843-8392-92849382--0.jpg"
   #
   # The temporary file will be placed in the directory as specified
   # by the +tmpdir+ parameter. By default, this is +Dir.tmpdir+.
@@ -110,7 +109,7 @@ class Tempfile < DelegateClass(File)
   # come from environment variables (e.g. <tt>$TMPDIR</tt>).
   #
   #   file = Tempfile.new('hello', '/home/aisaka')
-  #   file.path  # => something like: "/home/aisaka/foo2843-8392-92849382--0"
+  #   file.path  # => something like: "/home/aisaka/hello2843-8392-92849382--0"
   #
   # You can also pass an options hash. Under the hood, Tempfile creates
   # the temporary file using +File.open+. These options will be passed to
@@ -127,12 +126,14 @@ class Tempfile < DelegateClass(File)
   # If Tempfile.new cannot find a unique filename within a limited
   # number of tries, then it will raise an exception.
   def initialize(basename, *rest)
+    if block_given?
+      warn "Tempfile.new doesn't call the given block."
+    end
     @data = []
     @clean_proc = Remover.new(@data)
     ObjectSpace.define_finalizer(self, @clean_proc)
 
     create(basename, *rest) do |tmpname, n, opts|
-      lock = tmpname + '.lock'
       mode = File::RDWR|File::CREAT|File::EXCL
       perm = 0600
       if opts
@@ -142,13 +143,8 @@ class Tempfile < DelegateClass(File)
       else
         opts = perm
       end
-      self.class.mkdir(lock)
-      begin
-        @data[1] = @tmpfile = File.open(tmpname, mode, opts)
-        @data[0] = @tmpname = tmpname
-      ensure
-        self.class.rmdir(lock)
-      end
+      @data[1] = @tmpfile = File.open(tmpname, mode, opts)
+      @data[0] = @tmpname = tmpname
       @mode = mode & ~(File::CREAT|File::EXCL)
       perm or opts.freeze
       @opts = opts
@@ -165,7 +161,7 @@ class Tempfile < DelegateClass(File)
     __setobj__(@tmpfile)
   end
 
-  def _close	# :nodoc:
+  def _close    # :nodoc:
     @tmpfile.close if @tmpfile
     @tmpfile = nil
     @data[1] = nil if @data
@@ -296,7 +292,7 @@ class Tempfile < DelegateClass(File)
     #
     # If a block is given, then a Tempfile object will be constructed,
     # and the block is run with said object as argument. The Tempfile
-    # oject will be automatically closed after the block terminates.
+    # object will be automatically closed after the block terminates.
     # The call returns the value of the block.
     #
     # In any case, all arguments (+*args+) will be passed to Tempfile.new.
@@ -316,21 +312,14 @@ class Tempfile < DelegateClass(File)
       tempfile = new(*args)
 
       if block_given?
-	begin
-	  yield(tempfile)
-	ensure
-	  tempfile.close
-	end
+        begin
+          yield(tempfile)
+        ensure
+          tempfile.close
+        end
       else
-	tempfile
+        tempfile
       end
-    end
-
-    def mkdir(*args)
-      Dir.mkdir(*args)
-    end
-    def rmdir(*args)
-      Dir.rmdir(*args)
     end
   end
 end

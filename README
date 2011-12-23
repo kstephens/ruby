@@ -18,7 +18,7 @@ Perl).  It is simple, straight-forward, and extensible.
   + Dynamic Loading of Object files(on some architecture)
   + Highly Portable (works on many Unix-like/POSIX compatible platforms
     as well as Windows, Mac OS X, BeOS etc.)
-    cf. http://redmine.ruby-lang.org/wiki/ruby-19/SupportedPlatforms
+    cf. http://bugs.ruby-lang.org/projects/ruby-trunk/wiki/SupportedPlatforms
 
 
 * How to get Ruby
@@ -83,8 +83,8 @@ This is what you need to do to compile and install Ruby:
 
   5. Run make.
 
-  6. Optionally, run 'make test' to check whether the compiled Ruby
-     interpreter works well.  If you see the message "test succeeded",
+  6. Optionally, run 'make check' to check whether the compiled Ruby
+     interpreter works well.  If you see the message "check succeeded",
      your ruby works as it should (hopefully).
 
   7. Run 'make install'
@@ -128,7 +128,7 @@ See the file COPYING.
 
 * The Author
 
-Feel free to send comments and bug reports to the author.  Here is the 
+Feel free to send comments and bug reports to the author.  Here is the
 author's latest mail address:
 
   matz@netlab.jp

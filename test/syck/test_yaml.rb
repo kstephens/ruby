@@ -3,6 +3,7 @@
 # $Id$
 #
 require 'test/unit'
+require 'syck'
 require 'yaml'
 require 'syck/ypath'
 
@@ -20,6 +21,11 @@ class YAML_Unit_Tests < Test::Unit::TestCase
 
     def teardown
         YAML::ENGINE.yamler = @current_engine
+    end
+
+    # [ruby-core:34969]
+    def test_regexp_with_n
+        assert_cycle(Regexp.new('',0,'n'))
     end
 
 	#
@@ -440,7 +446,7 @@ EOY
 
 	#
 	# Reports from N.Easterly & J.Trupiano : Tests with patch from daz
-	# [ruby-core:23006] [Bug #1311] http://redmine.ruby-lang.org/issues/show/1311
+	# [ruby-core:23006] [Bug #1311] http://bugs.ruby-lang.org/issues/show/1311
 	#
 	def test_scan_scalar_nl
 		bug1311 = '[ruby-core:23006]'
@@ -500,7 +506,7 @@ EoY
 
     WHOIS lookup made at 11:56:46 19-Mar-2010
 
--- 
+--
 This WHOIS information is provided for free by Nominet UK the central registry
 for .uk domain names. This information and the .uk WHOIS are:
 
@@ -512,7 +518,7 @@ includes restrictions on: (A) use of the data for advertising, or its
 repackaging, recompilation, redistribution or reuse (B) obscuring, removing
 or hiding any or all of this notice and (C) exceeding query rate or volume
 limits. The data is provided on an 'as-is' basis and may lag behind the
-register. Access may be withdrawn or restricted at any time. 
+register. Access may be withdrawn or restricted at any time.
 EoY
 
 	end

@@ -124,13 +124,13 @@ def gencallback(ty, calltype, proc_entry, argc, n)
   <<-EOS
 #{calltype == STDCALL ? "\n#ifdef FUNC_STDCALL" : ""}
 static #{DLTYPE[ty][:type]}
-FUNC_#{calltype.upcase}(#{func_name(ty,argc,n,calltype)})(#{(0...argc).collect{|i| "DLSTACK_TYPE stack" + i.to_s}.join(", ")})
+FUNC_#{calltype.upcase}(#{func_name(ty,argc,n,calltype)})(#{(0...argc).collect{|i| "DLSTACK_TYPE stack#{i}"}.join(", ")})
 {
     VALUE ret, cb#{argc > 0 ? ", args[#{argc}]" : ""};
 #{
       (0...argc).collect{|i|
-	"    args[%d] = LONG2NUM(stack%d);" % [i,i]
-      }.join("\n")
+        "\n    args[#{i}] = PTR2NUM(stack#{i});"
+      }.join("")
 }
     cb = rb_ary_entry(rb_ary_entry(#{proc_entry}, #{ty}), #{(n * DLSTACK_SIZE) + argc});
     ret = rb_funcall2(cb, rb_dl_cb_call, #{argc}, #{argc > 0 ? 'args' : 'NULL'});

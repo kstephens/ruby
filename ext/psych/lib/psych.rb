@@ -1,5 +1,6 @@
 require 'psych.so'
 require 'psych/nodes'
+require 'psych/streaming'
 require 'psych/visitors'
 require 'psych/handler'
 require 'psych/tree_builder'
@@ -9,6 +10,9 @@ require 'psych/set'
 require 'psych/coder'
 require 'psych/core_ext'
 require 'psych/deprecated'
+require 'psych/stream'
+require 'psych/json/tree_builder'
+require 'psych/json/stream'
 
 ###
 # = Overview
@@ -88,7 +92,7 @@ require 'psych/deprecated'
 
 module Psych
   # The version is Psych you're using
-  VERSION         = '1.0.0'
+  VERSION         = '1.2.2'
 
   # The version of libyaml Psych is using
   LIBYAML_VERSION = Psych.libyaml_version.join '.'
@@ -96,40 +100,64 @@ module Psych
   class Exception < RuntimeError
   end
 
-  autoload :Stream, 'psych/stream'
-  autoload :JSON, 'psych/json'
+  class BadAlias < Exception
+  end
 
   ###
   # Load +yaml+ in to a Ruby data structure.  If multiple documents are
   # provided, the object contained in the first document will be returned.
+  # +filename+ will be used in the exception message if any exception is raised
+  # while parsing.
+  #
+  # Raises a Psych::SyntaxError when a YAML syntax error is detected.
   #
   # Example:
   #
-  #   Psych.load("--- a")           # => 'a'
-  #   Psych.load("---\n - a\n - b") # => ['a', 'b']
-  def self.load yaml
-    result = parse(yaml)
+  #   Psych.load("--- a")             # => 'a'
+  #   Psych.load("---\n - a\n - b")   # => ['a', 'b']
+  #
+  #   begin
+  #     Psych.load("--- `", "file.txt")
+  #   rescue Psych::SyntaxError => ex
+  #     ex.file    # => 'file.txt'
+  #     ex.message # => "(foo.txt): found character that cannot start any token"
+  #   end
+  def self.load yaml, filename = nil
+    result = parse(yaml, filename)
     result ? result.to_ruby : result
   end
 
   ###
   # Parse a YAML string in +yaml+.  Returns the first object of a YAML AST.
+  # +filename+ is used in the exception message if a Psych::SyntaxError is
+  # raised.
+  #
+  # Raises a Psych::SyntaxError when a YAML syntax error is detected.
   #
   # Example:
   #
   #   Psych.parse("---\n - a\n - b") # => #<Psych::Nodes::Sequence:0x00>
   #
+  #   begin
+  #     Psych.parse("--- `", "file.txt")
+  #   rescue Psych::SyntaxError => ex
+  #     ex.file    # => 'file.txt'
+  #     ex.message # => "(foo.txt): found character that cannot start any token"
+  #   end
+  #
   # See Psych::Nodes for more information about YAML AST.
-  def self.parse yaml
-    children = parse_stream(yaml).children
+  def self.parse yaml, filename = nil
+    children = parse_stream(yaml, filename).children
     children.empty? ? false : children.first.children.first
   end
 
   ###
   # Parse a file at +filename+. Returns the YAML AST.
+  #
+  # Raises a Psych::SyntaxError when a YAML syntax error is detected.
   def self.parse_file filename
     File.open filename do |f|
-      parse f
+      parse f, filename
     end
   end
 
@@ -142,15 +170,26 @@ module Psych
   ###
   # Parse a YAML string in +yaml+.  Returns the full AST for the YAML document.
   # This method can handle multiple YAML documents contained in +yaml+.
+  # +filename+ is used in the exception message if a Psych::SyntaxError is
+  # raised.
+  #
+  # Raises a Psych::SyntaxError when a YAML syntax error is detected.
   #
   # Example:
   #
   #   Psych.parse_stream("---\n - a\n - b") # => #<Psych::Nodes::Stream:0x00>
   #
+  #   begin
+  #     Psych.parse_stream("--- `", "file.txt")
+  #   rescue Psych::SyntaxError => ex
+  #     ex.file    # => 'file.txt'
+  #     ex.message # => "(foo.txt): found character that cannot start any token"
+  #   end
+  #
   # See Psych::Nodes for more information about YAML AST.
-  def self.parse_stream yaml
+  def self.parse_stream yaml, filename = nil
     parser = self.parser
-    parser.parse yaml
+    parser.parse yaml, filename
     parser.handler.root
   end
 
@@ -186,7 +225,7 @@ module Psych
 
     visitor = Psych::Visitors::YAMLTree.new options
     visitor << o
-    visitor.tree.to_yaml io, options
+    visitor.tree.yaml io, options
   end
 
   ###
@@ -200,7 +239,7 @@ module Psych
     objects.each do |o|
       visitor << o
     end
-    visitor.tree.to_yaml
+    visitor.tree.yaml
   end
 
   ###
@@ -208,7 +247,7 @@ module Psych
   def self.to_json o
     visitor = Psych::Visitors::JSONTree.new
     visitor << o
-    visitor.tree.to_yaml
+    visitor.tree.yaml
   end
 
   ###
@@ -217,15 +256,15 @@ module Psych
   #
   #   Psych.load_stream("--- foo\n...\n--- bar\n...") # => ['foo', 'bar']
   #
-  def self.load_stream yaml
-    parse_stream(yaml).children.map { |child| child.to_ruby }
+  def self.load_stream yaml, filename = nil
+    parse_stream(yaml, filename).children.map { |child| child.to_ruby }
   end
 
   ###
   # Load the document contained in +filename+.  Returns the yaml contained in
   # +filename+ as a ruby object
   def self.load_file filename
-    self.load File.open(filename)
+    File.open(filename) { |f| self.load f, filename }
   end
 
   # :stopdoc:

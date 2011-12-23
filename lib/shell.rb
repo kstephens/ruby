@@ -1,8 +1,8 @@
 #
 #   shell.rb -
-#   	$Release Version: 0.7 $
-#   	$Revision: 1.9 $
-#   	by Keiju ISHITSUKA(keiju@ruby-lang.org)
+#       $Release Version: 0.7 $
+#       $Revision: 1.9 $
+#       by Keiju ISHITSUKA(keiju@ruby-lang.org)
 #
 # --
 #
@@ -19,6 +19,7 @@ require "shell/error"
 require "shell/command-processor"
 require "shell/process-controller"
 
+# Shell implements an idiomatic Ruby interface for common UNIX shell commands.
 class Shell
   @RCS_ID='-$Id: shell.rb,v 1.9 2002/03/04 12:01:10 keiju Exp keiju $-'
 
@@ -51,27 +52,46 @@ class Shell
       @verbose = val if val
     end
 
+    # Creates a new Shell instance with the current working directory
+    # set to +path+.
     def cd(path)
       new(path)
     end
 
+    # Returns the directories in the current shell's PATH environment variable
+    # as an array of directory names. This sets the system_path for all
+    # instances of Shell.
+    #
+    # Example: If in your current shell, you did:
+    #
+    #   $ echo $PATH
+    #   /usr/bin:/bin:/usr/local/bin
+    #
+    # Running this method in the above shell would then return:
+    #
+    #   ["/usr/bin", "/bin", "/usr/local/bin"]
+    #
     def default_system_path
       if @default_system_path
-	@default_system_path
+        @default_system_path
       else
-	ENV["PATH"].split(":")
+        ENV["PATH"].split(":")
       end
     end
 
+    # Sets the system_path that new instances of Shell should have as their
+    # initial system_path.
+    #
+    # +path+ should be an array of directory name strings.
     def default_system_path=(path)
       @default_system_path = path
     end
 
     def default_record_separator
       if @default_record_separator
-	@default_record_separator
+        @default_record_separator
       else
-	$/
+        $/
       end
     end
 
@@ -104,6 +124,9 @@ class Shell
 
   attr_reader :system_path
 
+  # Sets the system path (the Shell instance's PATH environment variable).
+  #
+  # +path+ should be an array of directory name strings.
   def system_path=(path)
     @system_path = path
     rehash
@@ -139,6 +162,7 @@ class Shell
   # Shell#mkdir
   # Shell#rmdir
 
+  # Returns the current working directory.
   attr_reader :cwd
   alias dir cwd
   alias getwd cwd
@@ -156,10 +180,10 @@ class Shell
       notify("chdir(with block) #{path}") if verbose
       cwd_old = @cwd
       begin
-	chdir(path, nil)
-	yield
+        chdir(path, nil)
+        yield
       ensure
-	chdir(cwd_old, nil)
+        chdir(cwd_old, nil)
       end
     else
       notify("chdir #{path}") if verbose
@@ -179,9 +203,9 @@ class Shell
       notify("pushdir(with block) #{path}") if verbose
       pushdir(path, nil)
       begin
-	yield
+        yield
       ensure
-	popdir
+        popdir
       end
     elsif path
       notify("pushdir #{path}") if verbose
@@ -192,12 +216,12 @@ class Shell
     else
       notify("pushdir") if verbose
       if pop = @dir_stack.pop
-	@dir_stack.push @cwd
-	chdir pop
-	notify "dir stack: [#{@dir_stack.join ', '}]"
-	self
+        @dir_stack.push @cwd
+        chdir pop
+        notify "dir stack: [#{@dir_stack.join ', '}]"
+        self
       else
-	Shell.Fail DirStackEmpty
+        Shell.Fail DirStackEmpty
       end
     end
     Void.new(self)
@@ -262,35 +286,35 @@ class Shell
     end
   end
 
-  def self.notify(*opts, &block)
+  def self.notify(*opts)
     Shell::debug_output_synchronize do
       if opts[-1].kind_of?(String)
-	yorn = verbose?
+        yorn = verbose?
       else
-	yorn = opts.pop
+        yorn = opts.pop
       end
       return unless yorn
 
       if @debug_display_thread_id
-	if @debug_display_process_id
-	  prefix = "shell(##{Process.pid}:#{Thread.current.to_s.sub("Thread", "Th")}): "
-	else
-	  prefix = "shell(#{Thread.current.to_s.sub("Thread", "Th")}): "
-	end
+        if @debug_display_process_id
+          prefix = "shell(##{Process.pid}:#{Thread.current.to_s.sub("Thread", "Th")}): "
+        else
+          prefix = "shell(#{Thread.current.to_s.sub("Thread", "Th")}): "
+        end
       else
-	prefix = "shell: "
+        prefix = "shell: "
       end
       _head = true
       STDERR.print opts.collect{|mes|
-	mes = mes.dup
-	yield mes if iterator?
-	if _head
-	  _head = false
-#	  "shell" " + mes
-	  prefix + mes
-	else
-	  " "* prefix.size + mes
-	end
+        mes = mes.dup
+        yield mes if iterator?
+        if _head
+          _head = false
+#         "shell" " + mes
+          prefix + mes
+        else
+          " "* prefix.size + mes
+        end
       }.join("\n")+"\n"
     end
   end

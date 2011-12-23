@@ -29,10 +29,10 @@ class TestRequire < Test::Unit::TestCase
     INPUT
 
     begin
-      assert_in_out_err(["-S", "foo/" * 2500 + "foo"], "") do |r, e|
+      assert_in_out_err(["-S", "-w", "foo/" * 1024 + "foo"], "") do |r, e|
         assert_equal([], r)
         assert_operator(2, :<=, e.size)
-        assert_equal("openpath: pathname too long (ignored)", e.first)
+        assert_match(/warning: openpath: pathname too long \(ignored\)/, e.first)
         assert_match(/\(LoadError\)/, e.last)
       end
     rescue Errno::EINVAL
@@ -46,17 +46,34 @@ class TestRequire < Test::Unit::TestCase
     assert_match(/\u{221e}\z/, e.message, bug3758)
   end
 
-  def test_require_path_home
+  def test_require_path_home_1
     env_rubypath, env_home = ENV["RUBYPATH"], ENV["HOME"]
     pathname_too_long = /pathname too long \(ignored\).*\(LoadError\)/m
 
     ENV["RUBYPATH"] = "~"
-    ENV["HOME"] = "/foo" * 2500
-    assert_in_out_err(%w(-S test_ruby_test_require), "", [], pathname_too_long)
+    ENV["HOME"] = "/foo" * 1024
+    assert_in_out_err(%w(-S -w test_ruby_test_require), "", [], pathname_too_long)
 
-    ENV["RUBYPATH"] = "~" + "/foo" * 2500
+  ensure
+    env_rubypath ? ENV["RUBYPATH"] = env_rubypath : ENV.delete("RUBYPATH")
+    env_home ? ENV["HOME"] = env_home : ENV.delete("HOME")
+  end
+
+  def test_require_path_home_2
+    env_rubypath, env_home = ENV["RUBYPATH"], ENV["HOME"]
+    pathname_too_long = /pathname too long \(ignored\).*\(LoadError\)/m
+
+    ENV["RUBYPATH"] = "~" + "/foo" * 1024
     ENV["HOME"] = "/foo"
-    assert_in_out_err(%w(-S test_ruby_test_require), "", [], pathname_too_long)
+    assert_in_out_err(%w(-S -w test_ruby_test_require), "", [], pathname_too_long)
+
+  ensure
+    env_rubypath ? ENV["RUBYPATH"] = env_rubypath : ENV.delete("RUBYPATH")
+    env_home ? ENV["HOME"] = env_home : ENV.delete("HOME")
+  end
+
+  def test_require_path_home_3
+    env_rubypath, env_home = ENV["RUBYPATH"], ENV["HOME"]
 
     t = Tempfile.new(["test_ruby_test_require", ".rb"])
     t.puts "p :ok"
@@ -75,7 +92,7 @@ class TestRequire < Test::Unit::TestCase
   end
 
   def test_require_with_unc
-    assert(system(File.expand_path(EnvUtil.rubybin).sub(/\A(\w):/, '//localhost/\1$/'), "-rabbrev", "-e0"))
+    assert(system(File.expand_path(EnvUtil.rubybin).sub(/\A(\w):/, '//127.0.0.1/\1$/'), "-rabbrev", "-e0"))
   end if /mswin|mingw/ =~ RUBY_PLATFORM
 
   def test_define_class
@@ -321,5 +338,61 @@ class TestRequire < Test::Unit::TestCase
     assert_in_out_err(['-e', '$LOADED_FEATURES.freeze; require "ostruct"'], "",
                       [], /\$LOADED_FEATURES is frozen; cannot append feature \(RuntimeError\)$/,
                       bug3756)
+  end
+
+  def test_race_exception
+    bug5754 = '[ruby-core:41618]'
+    tmp = Tempfile.new(%w"bug5754 .rb")
+    path = tmp.path
+    tmp.print %{\
+      th = Thread.current
+      t = th[:t]
+      scratch = th[:scratch]
+
+      if scratch.empty?
+        scratch << :pre
+        Thread.pass until t.stop?
+        raise RuntimeError
+      else
+        scratch << :post
+      end
+    }
+    tmp.close
+
+    start = false
+
+    scratch = []
+    t1_res = nil
+    t2_res = nil
+
+    t1 = Thread.new do
+      Thread.pass until start
+      begin
+        require(path)
+      rescue RuntimeError
+      end
+
+      t1_res = require(path)
+    end
+
+    t2 = Thread.new do
+      Thread.pass until scratch[0]
+      t2_res = require(path)
+    end
+
+    t1[:scratch] = t2[:scratch] = scratch
+    t1[:t] = t2
+    t2[:t] = t1
+
+    start = true
+
+    assert_nothing_raised(ThreadError, bug5754) {t1.join}
+    assert_nothing_raised(ThreadError, bug5754) {t2.join}
+
+    assert_equal(true, (t1_res ^ t2_res), bug5754 + " t1:#{t1_res} t2:#{t2_res}")
+    assert_equal([:pre, :post], scratch, bug5754)
+  ensure
+    $".delete(path)
+    tmp.close(true) if tmp
   end
 end
