@@ -1,12 +1,12 @@
 =begin
 
-Duck Typing for Throwables
+Feature: Throwable
 
-This proposes the ability to throw any object that acts like a Throwable.
+This proposes the ability to throw any object that is a Throwable.
 
 Problem:
 
-* The Exception subclass heirarchy is well-established.
+* The Exception subclass hierarchy is well-established.
 * CRuby does not allow any object that behaves as an Exception to be thrown, it must be a subclass of Exception.
 * 3rd-party code often rescues Exception; e.g. for error recovery, retry and/or logging.
 * Users need the ability to raise objects that would not normally be rescued by *any* code;
@@ -15,10 +15,15 @@ Problem:
 Solution:
 
 * A "Throwable" module implements all of the methods currently defined in Exception.
-* Exception includes Throwable.
+* Exception class includes Throwable module.
 * ruby/eval.c: make_exception() asserts rb_obj_is_kind_of(mesg, rb_mThrowable), 
-instead of rb_obj_is_kind_of(mesg, rb_cException)
-* Users should avoid "rescue Throwable" in usual cirumstances.
+instead of rb_obj_is_kind_of(mesg, rb_cException).  
+* Users should avoid "rescue Throwable" in usual circumstances.
+
+Other Ideas not Implemented here:
+
+* Remove the obj_is_kind_of(mesg, rb_mThrowable) restriction to allow pure duck-typing.
+* Clean up the ivar names (@bt, @mesg) and method names (set_backtrace).
 
 Sample Usage:
 
