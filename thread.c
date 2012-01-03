@@ -2058,9 +2058,9 @@ rb_thread_local_aref(VALUE thread, ID id)
  *  call-seq:
  *      thr[sym]   -> obj or nil
  *
- *  Attribute Reference---Returns the value of a thread-local variable, using
- *  either a symbol or a string name. If the specified variable does not exist,
- *  returns <code>nil</code>.
+ *  Attribute Reference---Returns the value of a fiber-local variable (current thread's root fiber
+ *  if not explicitely inside a Fiber), using either a symbol or a string name.
+ *  If the specified variable does not exist, returns <code>nil</code>.
  *
  *     [
  *       Thread.new { Thread.current["name"] = "A" },
@@ -2111,7 +2111,7 @@ rb_thread_local_aset(VALUE thread, ID id, VALUE val)
  *  call-seq:
  *      thr[sym] = obj   -> obj
  *
- *  Attribute Assignment---Sets or creates the value of a thread-local variable,
+ *  Attribute Assignment---Sets or creates the value of a fiber-local variable,
  *  using either a symbol or a string. See also <code>Thread#[]</code>.
  */
 
@@ -2126,7 +2126,7 @@ rb_thread_aset(VALUE self, VALUE id, VALUE val)
  *     thr.key?(sym)   -> true or false
  *
  *  Returns <code>true</code> if the given string (or symbol) exists as a
- *  thread-local variable.
+ *  fiber-local variable.
  *
  *     me = Thread.current
  *     me[:oliver] = "a"
@@ -2179,7 +2179,7 @@ rb_thread_alone(void)
  *  call-seq:
  *     thr.keys   -> array
  *
- *  Returns an an array of the names of the thread-local variables (as Symbols).
+ *  Returns an an array of the names of the fiber-local variables (as Symbols).
  *
  *     thr = Thread.new do
  *       Thread.current[:cat] = 'meow'
@@ -3685,6 +3685,21 @@ barrier_alloc(VALUE klass)
 }
 
 #define GetBarrierPtr(obj) ((VALUE)rb_check_typeddata((obj), &barrier_data_type))
+#define BARRIER_WAITING_MASK (FL_USER0|FL_USER1|FL_USER2|FL_USER3|FL_USER4|FL_USER5|FL_USER6|FL_USER7|FL_USER8|FL_USER9|FL_USER10|FL_USER11|FL_USER12|FL_USER13|FL_USER14|FL_USER15|FL_USER16|FL_USER17|FL_USER18|FL_USER19)
+#define BARRIER_WAITING_SHIFT (FL_USHIFT)
+#define rb_barrier_waiting(b) ((RBASIC(b)->flags&BARRIER_WAITING_MASK)>>BARRIER_WAITING_SHIFT)
+#define rb_barrier_waiting_inc(b) do { \
+    int w = rb_barrier_waiting(b); \
+    w++; \
+    RBASIC(b)->flags &= ~BARRIER_WAITING_MASK; \
+    RBASIC(b)->flags |= (w << BARRIER_WAITING_SHIFT); \
+} while (0)
+#define rb_barrier_waiting_dec(b) do { \
+    int w = rb_barrier_waiting(b); \
+    w--; \
+    RBASIC(b)->flags &= ~BARRIER_WAITING_MASK; \
+    RBASIC(b)->flags |= (w << BARRIER_WAITING_SHIFT); \
+} while (0)
 
 VALUE
 rb_barrier_new(void)
@@ -3707,16 +3722,16 @@ rb_barrier_wait(VALUE self)
 {
     VALUE mutex = GetBarrierPtr(self);
     rb_mutex_t *m;
-    int waiting;
 
     if (!mutex) return Qfalse;
     GetMutexPtr(mutex, m);
     if (m->th == GET_THREAD()) return Qnil;
+    rb_barrier_waiting_inc(self);
     rb_mutex_lock(mutex);
+    rb_barrier_waiting_dec(self);
     if (DATA_PTR(self)) return Qtrue;
-    waiting = m->cond_waiting;
     rb_mutex_unlock(mutex);
-    return waiting ? Qnil : Qfalse;
+    return rb_barrier_waiting(self) > 0 ? Qnil : Qfalse;
 }
 
 /*
@@ -3726,10 +3741,8 @@ VALUE
 rb_barrier_release(VALUE self)
 {
     VALUE mutex = GetBarrierPtr(self);
-    rb_mutex_t *m;
     rb_mutex_unlock(mutex);
-    GetMutexPtr(mutex, m);
-    return m->cond_waiting > 0 ? Qtrue : Qfalse;
+    return rb_barrier_waiting(self) > 0 ? Qtrue : Qfalse;
 }
 
 /*
@@ -3739,22 +3752,9 @@ VALUE
 rb_barrier_destroy(VALUE self)
 {
     VALUE mutex = GetBarrierPtr(self);
-    rb_mutex_t *m;
     DATA_PTR(self) = 0;
     rb_mutex_unlock(mutex);
-    GetMutexPtr(mutex, m);
-    return m->cond_waiting > 0 ? Qtrue : Qfalse;
-}
-
-int
-rb_barrier_waiting(VALUE self)
-{
-    VALUE mutex = GetBarrierPtr(self);
-    rb_mutex_t *m;
-
-    if (!mutex) return 0;
-    GetMutexPtr(mutex, m);
-    return m->cond_waiting;
+    return rb_barrier_waiting(self) > 0 ? Qtrue : Qfalse;
 }
 
 /* variables for recursive traversals */

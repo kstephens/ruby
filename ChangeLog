@@ -1,3 +1,275 @@
+Wed Jan  4 00:19:54 2012  Kouhei Sutou  <kou@cozmixng.org>
+
+	* lib/rexml/parsers/baseparser.rb: use private instead of _xxx
+	  method name. This is Ruby code not Python code.
+	  refs #5696
+
+Tue Jan 03 23:57:37 2012  Ayumu AIZAWA  <ayumu.aizawa@gmail.com>
+
+	* lib/rexml/parsers/baseparser.rb: rexml BaseParser uses
+	  instance_eval unnecessarily on listener add.
+	  patch from Charles Nutter. [Bug #5696] [ruby-core:41437]
+
+Tue Jan 03 20:44:13 2012  Ayumu AIZAWA  <ayumu.aizawa@gmail.com>
+
+	* README: add comment for Git user. patch from Arun Agrawal.
+	* README.ja: ditto.
+
+Tue Jan 03 15:58:22 2012  Ayumu AIZAWA  <ayumu.aizawa@gmail.com>
+
+	* thread.c: changed documentation for "thread-local" variables.
+	  patch from Julien Ammous.
+
+Tue Jan 03 15:50:12 2012  Ayumu AIZAWA  <ayumu.aizawa@gmail.com>
+
+	* process.c: Fix typo. patch from Aviv Ben-Yosef.
+
+Tue Jan  3 13:43:37 2012  KOSAKI Motohiro  <kosaki.motohiro@gmail.com>
+
+	* tool/merger.rb: allow r0123 style revision number.
+
+Tue Jan  3 11:17:55 2012  KOSAKI Motohiro  <kosaki.motohiro@gmail.com>
+
+	* tool/merger.rb (#version_up): version.h date should be Japanese
+	  locale date.
+
+Mon Jan  2 22:08:00 2012  Akinori MUSHA  <knu@iDaemons.org>
+
+	* tool/file2lastrev.rb (VCS::detect): Add support for Subversion
+	  1.7 which adopted a whole new working directory structure.
+
+	* tool/file2lastrev.rb (VCS::detect): Simply use .each instead of
+	  .sort.reverse_each which looks too arbitrary.  If you want SVN
+	  to be tried first, then you just have to register it first as it
+	  is right now.
+
+Mon Jan  2 20:53:36 2012  Tanaka Akira  <akr@fsij.org>
+
+	* lib/securerandom.rb (random_bytes): use IO#read instead of
+	  IO#readpartial to make the intent more clear.
+
+Mon Jan  2 15:26:39 2012  Kazuki Tsujimoto  <kazuki@callcc.net>
+
+	* test/ruby/test_object.rb (test_send_with_block): add a normal case.
+
+Mon Jan  2 15:18:54 2012  Kazuki Tsujimoto  <kazuki@callcc.net>
+
+	* test/ruby/test_object.rb (test_send_with_block): moved from
+	  bootstraptest/test_flow.rb.
+
+Mon Jan  2 15:10:11 2012  Kazuhiro NISHIYAMA  <zn@mbf.nifty.com>
+
+	* lib/test/unit/parallel.rb: use pack("m0") instead of
+	  pack("m").gsub("\n","").
+	* lib/test/unit.rb (Test::Unit::Runner::Worker#run): ditto.
+
+Mon Jan  2 15:05:09 2012  Kazuhiro NISHIYAMA  <zn@mbf.nifty.com>
+
+	* lib/test/unit.rb (Test::Unit::Runner::Worker#run): use
+	  File.basename with suffix instead of gsub.
+
+Mon Jan  2 14:55:28 2012  Kazuhiro NISHIYAMA  <zn@mbf.nifty.com>
+
+	* lib/test/unit.rb (Test::Unit::Runner#_run_parallel): find may
+	  return nil and nil can not dup.
+
+Sun Jan  1 12:23:10 2012  Akinori MUSHA  <knu@iDaemons.org>
+
+	* lib/shellwords.rb (Shellwords#shellescape): Drop the //n flag
+	  that only causes warnings with no real effect.  [Bug #5637]
+
+Sat Dec 31 06:28:37 2011  NARUSE, Yui  <naruse@ruby-lang.org>
+
+	* thread.c (rb_barrier_waiting): save the number of waiting threads
+	  in RBASIC()->flags. [ruby-dev:45002] [Bug #5768]
+
+	* thread.c (rb_barrier_wait): increment and decrement around
+	  rb_mutex_lock, and use rb_barrier_waiting().
+
+	* thread.c (rb_barrier_release): use rb_barrier_waiting().
+
+	* thread.c (rb_barrier_destroy): ditto.
+
+Mon Dec 26 17:20:10 2011  NARUSE, Yui  <naruse@ruby-lang.org>
+
+	* vm.c (vm_exec): add guard to prevent optimization for LLVM clang.
+
+Fri Dec 30 17:01:12 2011  Ayumu AIZAWA  <ayumu.aizawa@gmail.com>
+
+	* vm_eval.c (rb_f_send): fix obj.send() documentation issue.
+	 [Bug #5125] [ruby-core:38633]
+
+Thu Dec 29 22:36:16 2011  CHIKANAGA Tomoyuki  <nagachika00@gmail.com>
+
+	* lib/test/unit.rb (Test::Unit::Runner::Worker#_run_parallels): fix
+	  premature exit when all workers' status are :ready or :prepare.
+	  [ruby-dev:45061] [Bug #5822]
+
+Thu Dec 29 01:51:13 2011  CHIKANAGA Tomoyuki  <nagachika00@gmail.com>
+
+	* include/ruby/ruby.h: fix #error pragma. LLP64 platform is supported.
+
+	* include/ruby/st.h: ditto.
+
+Wed Dec 28 11:22:45 2011  Nobuyoshi Nakada  <nobu@ruby-lang.org>
+
+	* lib/fileutils.rb (FileUtils::Entry_#entries): use utility method
+	  instead of typoed regexp.  [ruby-core:41829] [Bug #5817]
+
+Wed Dec 28 02:08:04 2011  CHIKANAGA Tomoyuki  <nagachika00@gmail.com>
+
+	* vm_insnhelper.c (unknown_keyword_error): add GC guard to prevent
+	  intermediate object from GC.
+
+Tue Dec 27 22:34:54 2011  Shota Fukumori  <sorah@tubusu.net>
+
+	* lib/test/unit.rb (Worker#close): "closing IO if IO is closed"
+	  should be "closing IO if IO isn't closed"
+
+Tue Dec 27 22:04:27 2011  Nobuyoshi Nakada  <nobu@ruby-lang.org>
+
+	* st.c (st_update): new function to lookup the given key and
+	  update the value.  [ruby-dev:44998]
+
+Tue Dec 27 21:17:33 2011  Nobuyoshi Nakada  <nobu@ruby-lang.org>
+
+	* node.h (rb_args_info): change pre_args_num and post_args_num as
+	  int, to match with rb_iseq_t.
+
+	* parse.y (new_args_gen): check overflow.
+
+Mon Dec 26 22:38:35 2011  Yusuke Endoh  <mame@tsg.ne.jp>
+
+	* vm_insnhelper.c (unknown_keyword_error): make it kind a error
+	  message when unknown keyword is given.  It require more work.
+	  See [ruby-core:40518] and [ruby-core:40541] in detail.
+
+Mon Dec 26 22:31:07 2011  Yusuke Endoh  <mame@tsg.ne.jp>
+
+	* vm_core.h (struct rb_iseq_struct), compile.c (iseq_set_arguments),
+	  iseq.c (rb_iseq_parameters), vm_insnhelper.c
+	  (vm_callee_setup_arg_complex): support Method#parameters for keyword
+	  arguments.  The provisional spec is what Benoit Daloze proposed.
+	  [ruby-core:40541]
+
+	* test/ruby/test_keyword.rb: add a test for above.
+
+Mon Dec 26 22:15:27 2011  Yusuke Endoh  <mame@tsg.ne.jp>
+
+	* vm_core.h (struct rb_iseq_struct), compile.c (iseq_set_arguments,
+	  iseq_compile_each), vm_insnhelper.c (vm_callee_setup_arg_complex):
+	  implement keyword arguments.  See [ruby-core:40290]
+	  The feature is promised to be included in 2.0, but the detail spec
+	  is still under discussion; this commit is a springboard for further
+	  discussion.  Please try it and give us feedback.
+	  This commit includes fixes for some problems reported by Benoit
+	  Daloze <eregontp AT gmail.com> [ruby-core:40518] and Marc-Andre
+	  Lafortune <ruby-core-mailing-list AT marc-andre.ca>
+	  [ruby-core:41772].
+
+	* iseq.c (iseq_free, prepare_iseq_build): bookkeeping.
+
+	* test/ruby/test_keyword.rb: add tests for keyword arguments.
+
+	* test/ripper/dummyparser.rb (class DummyParser): temporal fix for
+	  ripper test.
+
+Mon Dec 26 22:00:17 2011  Yusuke Endoh  <mame@tsg.ne.jp>
+
+	* node.h, node.c, parse.y: implement a parser part for keyword
+	  arguments.
+	  This is a preparation for keyword argument (see [ruby-core:40290]).
+
+	* gc.c (gc_mark_children): bookkeeping.
+
+Mon Dec 26 21:03:18 2011  Yusuke Endoh  <mame@tsg.ne.jp>
+
+	* node.h, parse.y (new_args_gen), compile.c (iseq_set_arguments): use
+	  struct rb_args_info instead of NODEs.
+	  This is a preparation for keyword argument (see [ruby-core:40290]).
+
+	* node.c (dump_node), gc.c (gc_mark_children, obj_free): bookkeeping.
+
+Mon Dec 26 20:59:51 2011  Yusuke Endoh  <mame@tsg.ne.jp>
+
+	* node.h, parse.y (lambda, f_larglist): remove NEW_LAMBDA hack.
+	  This is a preparation for keyword argument (see [ruby-core:40290]).
+
+Mon Dec 26 22:01:19 2011  Hiroshi Shirosaki <h.shirosaki@gmail.com>
+
+	* io.c (rb_sys_fail_path): move the definition.
+	  Move above for using it in set_binary_mode_with_seek_cur().
+
+	* io.c (set_binary_mode_with_seek_cur): fix improper seek cursor.
+	  Seeking file cursor with setting binary mode has possibility to
+	  cause infinite loop. Fixed the bug and refined error handling.
+	  Introduced at r34043.
+
+	  And cleanups as below.
+	  Remove unnecessary parentheses of `fptr`.
+	  Use return value of setmode().
+
+	* test/ruby/test_io_m17n.rb
+	  (TestIO_M17N#test_seek_with_setting_binmode): add a test for above.
+	  [ruby-core:41671] [Bug #5714]
+
+Mon Dec 26 17:01:14 2011  Nobuyoshi Nakada  <nobu@ruby-lang.org>
+
+	* common.mk (LIBRUBY_A): depends on main.o since r33774.
+	  [ruby-core:41786] [Bug #5796]
+
+Mon Dec 26 13:07:08 2011  NAKAMURA Usaku  <usa@ruby-lang.org>
+
+	* test/ruby/test_io.rb (TestIO#test_autoclose): Tempfile.new doesn't
+	  accept the block argument.
+
+Mon Dec 26 13:06:52 2011  Shota Fukumori  <sorah@tubusu.net>
+
+	* lib/test/unit.rb: Avoid zombie processes on "--separate" option
+	  added at r34121.
+
+Mon Dec 26 04:01:23 2011  Martin Bosslet  <Martin.Bosslet@googlemail.com>
+
+	* ext/openssl/ossl_cipher.c: Update and complete documentation.
+
+Sun Dec 25 23:16:11 2011  Shota Fukumori  <sorah@tubusu.net>
+
+	* test/testunit/test_parallel.rb (test_separate): Test for "--separate"
+	  option (r34121)
+
+Sun Dec 25 22:39:49 2011  Shota Fukumori  <sorah@tubusu.net>
+
+	* lib/test/unit.rb (_run_parallel):
+	  New option "--separate" for test/unit; when running tests with this
+	  option, a job process will be restarted after one test file has done.
+	  This means all test files will run with separated process.
+
+	* lib/test/unit/parallel.rb: Fix for above. Now parallel.rb puts
+	  "ready!" for first ready, "ready" for afters.
+
+Sun Dec 25 00:02:15 2011  Luis Lavena  <luislavena@gmail.com>
+
+	* configure.in: change --with-ntver to --with-winnt-ver to be more
+	  descriptive in the context. [ruby-core:41794]
+
+Sat Dec 24 23:25:15 2011  Luis Lavena  <luislavena@gmail.com>
+
+	* configure.in: add --with-ntver option to match win32/configure.bat
+	  functionality. Set 0x0501 as default. [ruby-core:35010]
+	  [ruby-core:35035]
+
+Sat Dec 24 12:38:53 2011  Nobuyoshi Nakada  <nobu@ruby-lang.org>
+
+	* proc.c (proc_call): get rid of optimization-out by clang.
+
+	* proc.c (rb_proc_call, rb_proc_call_with_block): ditto.
+
+Sat Dec 24 10:56:32 2011  Nobuyoshi Nakada  <nobu@ruby-lang.org>
+
+	* ext/readline/readline.c (readline_readline): check if outstream
+	  is closed to get rid of a bug of readline 6.  [ruby-dev:45043]
+	  [Bug #5803]
+
 Sat Dec 24 06:59:49 2011  Nobuyoshi Nakada  <nobu@ruby-lang.org>
 
 	* test/readline/test_readline.rb (test_line_buffer__point): use
@@ -55,13 +327,13 @@ Fri Dec 23 06:00:39 2011  Kazuhiro NISHIYAMA  <zn@mbf.nifty.com>
 
 Fri Dec 23 00:08:25 2011  Tanaka Akira  <akr@fsij.org>
 
-	* test/test_pty.rb (test_pty_check_default): "cat" may not terminateed
+	* test/test_pty.rb (test_pty_check_default): "cat" may not terminated
 	  in the 0.1 second.
 
 Thu Dec 22 23:37:25 2011  Tanaka Akira  <akr@fsij.org>
 
 	* test/ruby/test_thread.rb (test_condvar_timed_wait): don't test the
-	maximum sleep time.  Ruby is not a real-time system.
+	  maximum sleep time.  Ruby is not a real-time system.
 
 Thu Dec 22 22:37:45 2011  CHIKANAGA Tomoyuki  <nagachika00@gmail.com>
 
