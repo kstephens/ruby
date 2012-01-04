@@ -58,7 +58,7 @@ rb_get_backtrace(VALUE info)
 static void
 set_backtrace(VALUE info, VALUE bt)
 {
-    rb_funcall(info, rb_intern("set_backtrace"), 1, bt);
+    rb_funcall(info, rb_intern("backtrace="), 1, bt);
 }
 
 static void

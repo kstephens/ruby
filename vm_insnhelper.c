@@ -128,7 +128,7 @@ argument_error(const rb_iseq_t *iseq, int miss_argc, int correct_argc)
 	rb_funcall(bt, rb_intern("unshift"), 1, err_line);
     }
 
-    rb_funcall(exc, rb_intern("set_backtrace"), 1, bt);
+    rb_funcall(exc, rb_intern("backtrace="), 1, bt);
     rb_exc_raise(exc);
 }
 

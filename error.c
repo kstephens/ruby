@@ -541,8 +541,8 @@ exc_initialize(int argc, VALUE *argv, VALUE exc)
     VALUE arg;
 
     rb_scan_args(argc, argv, "01", &arg);
-    rb_iv_set(exc, "mesg", arg);
-    rb_iv_set(exc, "bt", Qnil);
+    rb_iv_set(exc, "message", arg);
+    rb_iv_set(exc, "backtrace", Qnil);
 
     return exc;
 }
@@ -584,7 +584,7 @@ exc_exception(int argc, VALUE *argv, VALUE self)
 static VALUE
 exc_to_s(VALUE exc)
 {
-    VALUE mesg = rb_attr_get(exc, rb_intern("mesg"));
+    VALUE mesg = rb_attr_get(exc, rb_intern("message"));
     VALUE r = Qnil;
 
     if (NIL_P(mesg)) return rb_class_name(CLASS_OF(exc));
@@ -671,7 +671,7 @@ exc_backtrace(VALUE exc)
 {
     ID bt;
 
-    CONST_ID(bt, "bt");
+    CONST_ID(bt, "backtrace");
     return rb_attr_get(exc, bt);
 }
 
@@ -700,6 +700,7 @@ rb_check_backtrace(VALUE bt)
 /*
  *  call-seq:
  *     exc.set_backtrace(array)   ->  array
+ *     exc.backtrace = array      -> array
  *
  *  Sets the backtrace information associated with <i>exc</i>. The
  *  argument must be an array of <code>String</code> objects in the
@@ -710,7 +711,7 @@ rb_check_backtrace(VALUE bt)
 static VALUE
 exc_set_backtrace(VALUE exc, VALUE bt)
 {
-    return rb_iv_set(exc, "bt", rb_check_backtrace(bt));
+    return rb_iv_set(exc, "backtrace", rb_check_backtrace(bt));
 }
 
 /*
@@ -729,7 +730,7 @@ exc_equal(VALUE exc, VALUE obj)
     ID id_mesg;
 
     if (exc == obj) return Qtrue;
-    CONST_ID(id_mesg, "mesg");
+    CONST_ID(id_mesg, "message");
 
     if (rb_obj_class(exc) != rb_obj_class(obj)) {
 	ID id_message, id_backtrace;
@@ -917,13 +918,13 @@ name_err_name(VALUE self)
 static VALUE
 name_err_to_s(VALUE exc)
 {
-    VALUE mesg = rb_attr_get(exc, rb_intern("mesg"));
+    VALUE mesg = rb_attr_get(exc, rb_intern("message"));
     VALUE str = mesg;
 
     if (NIL_P(mesg)) return rb_class_name(CLASS_OF(exc));
     StringValue(str);
     if (str != mesg) {
-	rb_iv_set(exc, "mesg", mesg = str);
+	rb_iv_set(exc, "message", mesg = str);
     }
     OBJ_INFECT(mesg, exc);
     return mesg;
@@ -1655,6 +1656,7 @@ Init_Exception(void)
     rb_define_method(rb_eException, "message", exc_message, 0);
     rb_define_method(rb_eException, "inspect", exc_inspect, 0);
     rb_define_method(rb_eException, "backtrace", exc_backtrace, 0);
+    rb_define_method(rb_eException, "backtrace=", exc_set_backtrace, 1);
     rb_define_method(rb_eException, "set_backtrace", exc_set_backtrace, 1);
 
     rb_eSystemExit  = rb_define_class("SystemExit", rb_eException);

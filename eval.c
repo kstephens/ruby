@@ -374,7 +374,7 @@ setup_exception(rb_thread_t *th, int tag, volatile VALUE mesg)
 	if (mesg == sysstack_error) {
 	    at = rb_enc_sprintf(rb_usascii_encoding(), "%s:%d", file, line);
 	    at = rb_ary_new3(1, at);
-	    rb_iv_set(mesg, "bt", at);
+	    rb_iv_set(mesg, "backtrace", at);
 	}
 	else {
 	    at = get_backtrace(mesg);

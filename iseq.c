@@ -292,7 +292,7 @@ cleanup_iseq_build(rb_iseq_t *iseq)
     compile_data_free(data);
 
     if (RTEST(err)) {
-	rb_funcall2(err, rb_intern("set_backtrace"), 1, &iseq->filename);
+	rb_funcall2(err, rb_intern("backtrace="), 1, &iseq->filename);
 	rb_exc_raise(err);
     }
     return Qtrue;

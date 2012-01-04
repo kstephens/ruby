@@ -1075,7 +1075,7 @@ eval_string_with_cref(VALUE self, VALUE src, VALUE scope, NODE *cref, const char
 		VALUE mesg, errat, bt2;
 		ID id_mesg;
 
-		CONST_ID(id_mesg, "mesg");
+		CONST_ID(id_mesg, "message");
 		errat = rb_get_backtrace(errinfo);
 		mesg = rb_attr_get(errinfo, id_mesg);
 		if (!NIL_P(errat) && RB_TYPE_P(errat, T_ARRAY) &&
