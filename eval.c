@@ -551,8 +551,6 @@ make_exception(int argc, VALUE *argv, int isstr)
 	break;
     }
     if (argc > 0) {
-	if (!rb_obj_is_kind_of(mesg, rb_eException))
-	    rb_raise(rb_eTypeError, "exception object expected");
 	if (argc > 2)
 	    set_backtrace(mesg, argv[2]);
     }
