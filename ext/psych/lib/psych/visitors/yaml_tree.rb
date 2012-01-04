@@ -145,7 +145,7 @@ module Psych
         @emitter.start_mapping nil, tag, false, Nodes::Mapping::BLOCK
 
         {
-          'message'   => private_iv_get(o, 'mesg'),
+          'message'   => private_iv_get(o, 'message'),
           'backtrace' => private_iv_get(o, 'backtrace'),
         }.each do |k,v|
           next unless v

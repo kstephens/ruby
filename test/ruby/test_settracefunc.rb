@@ -244,9 +244,9 @@ class TestSetTraceFunc < Test::Unit::TestCase
                  events.shift)
     assert_equal(["c-return", 5, :backtrace, Exception],
                  events.shift)
-    assert_equal(["c-call", 5, :set_backtrace, Exception],
+    assert_equal(["c-call", 5, :backtrace=, Exception],
                  events.shift)
-    assert_equal(["c-return", 5, :set_backtrace, Exception],
+    assert_equal(["c-return", 5, :backtrace=, Exception],
                  events.shift)
     assert_equal(["raise", 5, :test_raise, TestSetTraceFunc],
                  events.shift)
