@@ -17,7 +17,6 @@ The ability to raise any object that conforms to the protocol of Exception.
 = Solution
 
 * ruby/eval.c: Remove make_exception() assertion rb_obj_is_kind_of(mesg, rb_mRaiseable).
-* Clean up Execption ivar names (@bt, @mesg) and method names (set_backtrace).
 
 Sample Usage:
 
