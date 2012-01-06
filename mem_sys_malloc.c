@@ -164,6 +164,11 @@ rb_mem_sys rb_mem_sys_malloc = {
   0, /* initialize */
   mem_sys_malloc_options,
   0, /* Init_GC */
+  0, /* Init_heap */
+  malloc,
+  free,
+  realloc,
+  calloc,
   rb_newobj_malloc,
   rb_gc_malloc,
   rb_gc_mark_malloc,

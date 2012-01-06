@@ -43,6 +43,7 @@ ruby_init(void)
 	return;
     initialized = 1;
 
+    Init_mem_sys();
     ruby_init_stack((void *)&state);
     Init_BareVM();
     Init_heap();

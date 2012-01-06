@@ -17,7 +17,6 @@
 void
 rb_call_inits(void)
 {
-    CALL(mem_sys);
     CALL(RandomSeed);
     CALL(sym);
     CALL(var_tables);

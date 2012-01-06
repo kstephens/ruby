@@ -855,7 +855,7 @@ vm_xfree(rb_objspace_t *objspace, void *ptr)
 }
 
 void *
-ruby_xmalloc(size_t size)
+ruby_xmalloc_core(size_t size)
 {
     return vm_xmalloc(&rb_objspace, size);
 }
@@ -890,13 +890,13 @@ vm_xcalloc(rb_objspace_t *objspace, size_t count, size_t elsize)
 }
 
 void *
-ruby_xcalloc(size_t n, size_t size)
+ruby_xcalloc_core(size_t n, size_t size)
 {
     return vm_xcalloc(&rb_objspace, n, size);
 }
 
 void *
-ruby_xrealloc(void *ptr, size_t size)
+ruby_xrealloc_core(void *ptr, size_t size)
 {
     return vm_xrealloc(&rb_objspace, ptr, size);
 }
@@ -912,7 +912,7 @@ ruby_xrealloc2(void *ptr, size_t n, size_t size)
 }
 
 void
-ruby_xfree(void *x)
+ruby_xfree_core(void *x)
 {
     if (x)
 	vm_xfree(&rb_objspace, x);
@@ -2676,7 +2676,7 @@ Init_stack(volatile VALUE *addr)
  */
 
 void
-Init_heap(void)
+Init_heap_core(void)
 {
     init_heap(&rb_objspace);
 }

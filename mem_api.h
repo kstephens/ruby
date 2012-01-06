@@ -33,7 +33,12 @@ typedef struct rb_mem_sys {
   void (*initialize)(struct rb_mem_sys *ms);
   void (*options)(struct rb_mem_sys *ms, const char *options);
   void (*Init_GC)();
+  void (*Init_heap)();
   /* API methods. */
+  void *(*ruby_xmalloc)(size_t);
+  void  (*ruby_xfree)(void *);
+  void *(*ruby_xrealloc)(void *, size_t);
+  void *(*ruby_xcalloc)(size_t, size_t);
   VALUE (*newobj)(void);
   void (*gc)(void);
   void (*gc_mark)(VALUE object);

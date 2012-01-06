@@ -17,6 +17,8 @@ static rb_mem_sys ms; /* The active rb_mem_sys. */
 static rb_mem_sys *selected; /* The selected rb_mem_sys, copied to ms. */
 static rb_mem_sys *mem_sys_list = 0; /* List of registered rb_mem_sys objects. */
 
+void Init_heap_core(); /* gc.c */
+
 void rb_mem_sys_register(rb_mem_sys *mem_sys)
 {
   mem_sys->next = mem_sys_list;
@@ -77,14 +79,42 @@ static void rb_mem_sys_event_log_open(const char *event_log_file);
 
 void Init_mem_sys()
 {
+  static int initialized = 0;
+  if ( initialized ) return;
+  ++ initialized;
   rb_mem_sys_init();
   rb_mem_sys_select(0);
   rb_mem_sys_event_log_open(0);
 }
 
+void Init_heap()
+{
+  (ms.Init_heap ? ms.Init_heap : Init_heap_core)();
+}
+
 /********************************************************************
  * Internal interface to rb_mem_sys methods.
  */
+
+void *ruby_xmalloc(size_t size)
+{
+  return ms.ruby_xmalloc(size);
+}
+
+void ruby_xfree(void *ptr)
+{
+  ms.ruby_xfree(ptr);
+}
+
+void *ruby_xrealloc(void *ptr, size_t size)
+{
+  return ms.ruby_xrealloc(ptr, size);
+}
+
+void *ruby_xcalloc(size_t size1, size_t size2)
+{
+  return ms.ruby_xcalloc(size1, size2);
+}
 
 VALUE rb_newobj(void)
 {
@@ -188,7 +218,7 @@ void *rb_mem_sys_add_callback(enum rb_mem_sys_event event,
 			      void (*func)(void *callback, void *func_data, void *addr, size_t size), 
 			      void *func_data)
 {
-  rb_mem_sys_callback *cb = xmalloc(sizeof(*cb));
+  rb_mem_sys_callback *cb = malloc(sizeof(*cb));
   cb->event = event;
   cb->location = location;
   cb->func = func;
@@ -213,7 +243,7 @@ void rb_mem_sys_remove_callback(void *callback)
   cb->func = 0; /* guard. */
   cb->next->prev = cb->prev;
   cb->prev->next = cb->next;
-  xfree(cb);
+  free(cb);
 }
 
 void rb_mem_sys_set_callback_func(void *callback, void *func)
