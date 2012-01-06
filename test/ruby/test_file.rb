@@ -1,5 +1,6 @@
 require 'test/unit'
 require 'tempfile'
+require_relative 'envutil'
 require_relative 'ut_eof'
 
 class TestFile < Test::Unit::TestCase
@@ -181,4 +182,26 @@ class TestFile < Test::Unit::TestCase
     }
   end
 
+  def test_utime_with_minus_time_segv
+    bug5596 = '[ruby-dev:44838]'
+    assert_in_out_err([], <<-EOS, [bug5596], [])
+      require "tempfile"
+      t = Time.at(-1)
+      begin
+        f = Tempfile.new('test_utime_with_minus_time_segv')
+        File.utime(t, t, f)
+      rescue
+      end
+      puts '#{bug5596}'
+    EOS
+  end
+
+  def test_chmod_m17n
+    bug5671 = '[ruby-dev:44898]'
+    Dir.mktmpdir('test-file-chmod-m17n-') do |tmpdir|
+      file = File.join(tmpdir, "\u3042")
+      File.open(file, 'w'){}
+      assert_equal(File.chmod(0666, file), 1, bug5671)
+    end
+  end
 end

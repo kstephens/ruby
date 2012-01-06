@@ -502,9 +502,14 @@ void rb_write_error2(const char*, long);
 void rb_close_before_exec(int lowfd, int maxhint, VALUE noclose_fds);
 int rb_pipe(int *pipes);
 int rb_reserved_fd_p(int fd);
+int rb_cloexec_open(const char *pathname, int flags, mode_t mode);
+int rb_cloexec_dup(int oldfd);
+int rb_cloexec_dup2(int oldfd, int newfd);
+int rb_cloexec_pipe(int fildes[2]);
+int rb_cloexec_fcntl_dupfd(int fd, int minfd);
 #define RB_RESERVED_FD_P(fd) rb_reserved_fd_p(fd)
 void rb_update_max_fd(int fd);
-void rb_fd_set_cloexec(int fd);
+void rb_fd_fix_cloexec(int fd);
 /* marshal.c */
 VALUE rb_marshal_dump(VALUE, VALUE);
 VALUE rb_marshal_load(VALUE);
@@ -548,6 +553,7 @@ VALUE rb_check_convert_type(VALUE,int,const char*,const char*);
 VALUE rb_check_to_integer(VALUE, const char *);
 VALUE rb_check_to_float(VALUE);
 VALUE rb_to_int(VALUE);
+VALUE rb_check_to_int(VALUE);
 VALUE rb_Integer(VALUE);
 VALUE rb_to_float(VALUE);
 VALUE rb_Float(VALUE);

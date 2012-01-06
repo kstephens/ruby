@@ -110,7 +110,7 @@ rsa_generate(int size, int exp)
 	if (rsa) RSA_free(rsa);
 	return 0;
     }
-    for (i = 0; i < (int)sizeof(exp); ++i) {
+    for (i = 0; i < (int)sizeof(exp) * 8; ++i) {
 	if (exp & (1 << i)) {
 	    if (BN_set_bit(e, i) == 0) {
 		BN_free(e);
@@ -243,7 +243,7 @@ ossl_rsa_initialize(int argc, VALUE *argv, VALUE self)
 	}
 	BIO_free(in);
 	if (!rsa) {
-	    ossl_raise(eRSAError, "Neither PUB key nor PRIV key:");
+	    ossl_raise(eRSAError, "Neither PUB key nor PRIV key");
 	}
     }
     if (!EVP_PKEY_assign_RSA(pkey, rsa)) {

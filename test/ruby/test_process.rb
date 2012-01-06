@@ -1162,7 +1162,21 @@ class TestProcess < Test::Unit::TestCase
   end
 
   def test_geteuid
+    assert_kind_of(Integer, Process.euid)
+  end
+
+  def test_seteuid
+    assert_nothing_raised(TypeError) {Process.euid += 0}
+  rescue NotImplementedError
+  end
+
+  def test_getegid
     assert_kind_of(Integer, Process.egid)
+  end
+
+  def test_setegid
+    assert_nothing_raised(TypeError) {Process.egid += 0}
+  rescue NotImplementedError
   end
 
   def test_uid_re_exchangeable_p
@@ -1322,5 +1336,12 @@ class TestProcess < Test::Unit::TestCase
         assert_not_include(data.map(&:to_i), pid)
       end
     end
+  end
+
+  def test_popen_cloexec
+    return unless defined? Fcntl::FD_CLOEXEC
+    IO.popen([RUBY, "-e", ""]) {|io|
+      assert(io.close_on_exec?)
+    }
   end
 end

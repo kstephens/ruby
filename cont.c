@@ -103,6 +103,12 @@ typedef struct rb_fiber_struct {
     enum fiber_status status;
     struct rb_fiber_struct *prev_fiber;
     struct rb_fiber_struct *next_fiber;
+    /* If a fiber invokes "transfer",
+     * then this fiber can't "resume" any more after that.
+     * You shouldn't mix "transfer" and "resume".
+     */
+    int transfered;
+
 #if FIBER_USE_NATIVE
 #ifdef _WIN32
     void *fib_handle;
@@ -448,7 +454,7 @@ cont_capture(volatile int *stat)
     }
     else {
 	*stat = 0;
-	return cont->self;
+	return contval;
     }
 }
 
@@ -1254,6 +1260,13 @@ fiber_switch(VALUE fibval, int argc, VALUE *argv, int is_resume)
     GetFiberPtr(fibval, fib);
     cont = &fib->cont;
 
+    if (th->fiber == fibval) {
+	/* ignore fiber context switch
+         * because destination fiber is same as current fiber
+	 */
+	return make_passing_arg(argc, argv);
+    }
+
     if (cont->saved_thread.self != th->self) {
 	rb_raise(rb_eFiberError, "fiber called across threads");
     }
@@ -1322,6 +1335,9 @@ rb_fiber_resume(VALUE fibval, int argc, VALUE *argv)
     if (fib->prev != Qnil || fib->cont.type == ROOT_FIBER_CONTEXT) {
 	rb_raise(rb_eFiberError, "double resume");
     }
+    if (fib->transfered != 0) {
+	rb_raise(rb_eFiberError, "cannot resume transferred Fiber");
+    }
 
     return fiber_switch(fibval, argc, argv, 1);
 }
@@ -1389,9 +1405,12 @@ rb_fiber_m_resume(int argc, VALUE *argv, VALUE fib)
  *  back to this fiber before it can yield and resume.
  */
 static VALUE
-rb_fiber_m_transfer(int argc, VALUE *argv, VALUE fib)
+rb_fiber_m_transfer(int argc, VALUE *argv, VALUE fibval)
 {
-    return rb_fiber_transfer(fib, argc, argv);
+    rb_fiber_t *fib;
+    GetFiberPtr(fibval, fib);
+    fib->transfered = 1;
+    return rb_fiber_transfer(fibval, argc, argv);
 }
 
 /*

@@ -264,7 +264,8 @@ static VALUE
 recvmsg_blocking(void *data)
 {
     struct iomsg_arg *arg = data;
-    return recvmsg(arg->fd, &arg->msg, 0);
+    int flags = 0;
+    return rsock_recvmsg(arg->fd, &arg->msg, flags);
 }
 
 /*
@@ -383,7 +384,7 @@ unix_recv_io(int argc, VALUE *argv, VALUE sock)
 #if FD_PASSING_BY_MSG_CONTROL
     memcpy(&fd, CMSG_DATA(&cmsg.hdr), sizeof(int));
 #endif
-    rb_fd_set_cloexec(fd);
+    rb_fd_fix_cloexec(fd);
 
     if (klass == Qnil)
 	return INT2FIX(fd);

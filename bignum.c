@@ -1210,10 +1210,11 @@ rb_big2ulong(VALUE x)
     VALUE num = big2ulong(x, "unsigned long", TRUE);
 
     if (!RBIGNUM_SIGN(x)) {
-	if ((long)num < 0) {
+	unsigned long v = (unsigned long)(-(long)num);
+
+	if (v <= LONG_MAX)
 	    rb_raise(rb_eRangeError, "bignum out of range of unsigned long");
-	}
-	return (VALUE)(-(SIGNED_VALUE)num);
+	return (VALUE)v;
     }
     return num;
 }
@@ -1256,8 +1257,14 @@ rb_big2ull(VALUE x)
 {
     unsigned LONG_LONG num = big2ull(x, "unsigned long long");
 
-    if (!RBIGNUM_SIGN(x))
-	return (VALUE)(-(SIGNED_VALUE)num);
+    if (!RBIGNUM_SIGN(x)) {
+	LONG_LONG v = -(LONG_LONG)num;
+
+	/* FIXNUM_MIN-1 .. LLONG_MIN mapped into 0xbfffffffffffffff .. LONG_MAX+1 */
+	if ((unsigned LONG_LONG)v <= LLONG_MAX)
+	    rb_raise(rb_eRangeError, "bignum out of range of unsigned long long");
+	return v;
+    }
     return num;
 }
 
@@ -2774,12 +2781,13 @@ rb_big_divide(VALUE x, VALUE y, ID op)
 
       case T_FLOAT:
 	{
-	    double div = rb_big2dbl(x) / RFLOAT_VALUE(y);
 	    if (op == '/') {
-		return DBL2NUM(div);
+		return DBL2NUM(rb_big2dbl(x) / RFLOAT_VALUE(y));
 	    }
 	    else {
-		return rb_dbl2big(div);
+		double dy = RFLOAT_VALUE(y);
+		if (dy == 0.0) rb_num_zerodiv();
+		return rb_dbl2big(rb_big2dbl(x) / dy);
 	    }
 	}
 
@@ -3534,9 +3542,10 @@ big_rshift(VALUE x, unsigned long shift)
 	    return INT2FIX(-1);
     }
     if (!RBIGNUM_SIGN(x)) {
-	save_x = x = rb_big_clone(x);
+	x = rb_big_clone(x);
 	get2comp(x);
     }
+    save_x = x;
     xds = BDIGITS(x);
     i = RBIGNUM_LEN(x); j = i - s1;
     if (j == 0) {
@@ -3556,6 +3565,7 @@ big_rshift(VALUE x, unsigned long shift)
     if (!RBIGNUM_SIGN(x)) {
 	get2comp(z);
     }
+    RB_GC_GUARD(save_x);
     return z;
 }
 

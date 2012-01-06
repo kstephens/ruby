@@ -1423,32 +1423,29 @@ class TestIO < Test::Unit::TestCase
     feature2250 = '[ruby-core:26222]'
     pre = 'ft2250'
 
-    Tempfile.new(pre) do |t|
-      f = IO.for_fd(t.fileno)
-      assert_equal(true, f.autoclose?)
-      f.autoclose = false
-      assert_equal(false, f.autoclose?)
-      f.close
-      assert_nothing_raised(Errno::EBADF) {t.close}
+    t = Tempfile.new(pre)
+    f = IO.for_fd(t.fileno)
+    assert_equal(true, f.autoclose?)
+    f.autoclose = false
+    assert_equal(false, f.autoclose?)
+    f.close
+    assert_nothing_raised(Errno::EBADF) {t.close}
 
-      t.open
-      f = IO.for_fd(t.fileno, autoclose: false)
-      assert_equal(false, f.autoclose?)
-      f.autoclose = true
-      assert_equal(true, f.autoclose?)
-      f.close
-      assert_raise(Errno::EBADF) {t.close}
-    end
+    t.open
+    f = IO.for_fd(t.fileno, autoclose: false)
+    assert_equal(false, f.autoclose?)
+    f.autoclose = true
+    assert_equal(true, f.autoclose?)
+    f.close
+    assert_raise(Errno::EBADF) {t.close}
 
-    Tempfile.new(pre) do |t|
-      try_fdopen(t.fileno)
-      assert_raise(Errno::EBADF) {t.close}
-    end
+    t = Tempfile.new(pre)
+    try_fdopen(t.fileno)
+    assert_raise(Errno::EBADF) {t.close}
 
-    Tempfile.new(pre) do |t|
-      try_fdopen(f.fileno, false)
-      assert_nothing_raised(Errno::EBADF) {t.close}
-    end
+    t = Tempfile.new(pre)
+    try_fdopen(t.fileno, false)
+    assert_nothing_raised(Errno::EBADF) {t.close}
   end
 
   def test_open_redirect
@@ -1850,7 +1847,7 @@ End
     end
   end
 
-  def test_fcntl_lock
+  def test_fcntl_lock_linux
     return if /x86_64-linux/ !~ RUBY_PLATFORM # A binary form of struct flock depend on platform
 
     pad=0
@@ -1880,6 +1877,52 @@ End
 
       Process.kill :TERM, pid
       Process.waitpid2(pid)
+    end
+  end
+
+  def test_fcntl_lock_freebsd
+    return if /freebsd/ !~ RUBY_PLATFORM # A binary form of struct flock depend on platform
+
+    start = 12
+    len = 34
+    sysid = 0
+    Tempfile.open(self.class.name) do |f|
+      r, w = IO.pipe
+      pid = fork do
+        r.close
+        lock = [start, len, 0, Fcntl::F_WRLCK, IO::SEEK_SET, sysid].pack("qqis!s!i!")
+        f.fcntl Fcntl::F_SETLKW, lock
+        w.syswrite "."
+        sleep
+      end
+      w.close
+      assert_equal ".", r.read(1)
+      r.close
+
+      getlock = [0, 0, 0, Fcntl::F_WRLCK, 0, 0].pack("qqis!s!i!")
+      f.fcntl Fcntl::F_GETLK, getlock
+
+      start, len, lockpid, ptype, whence, sysid = getlock.unpack("qqis!s!i!")
+
+      assert_equal(ptype, Fcntl::F_WRLCK)
+      assert_equal(whence, IO::SEEK_SET)
+      assert_equal(start, 12)
+      assert_equal(len, 34)
+      assert_equal(pid, lockpid)
+
+      Process.kill :TERM, pid
+      Process.waitpid2(pid)
+    end
+  end
+
+  def test_fcntl_dupfd
+    Tempfile.open(self.class.name) do |f|
+      fd = f.fcntl(Fcntl::F_DUPFD, 63)
+      begin
+        assert_operator(fd, :>=, 63)
+      ensure
+        IO.for_fd(fd).close
+      end
     end
   end
 
@@ -2029,5 +2072,109 @@ End
       warn "[Feature #5029]", "[ruby-core:38070]"
     end
     assert_equal("[Feature #5029]\n[ruby-core:38070]\n", stderr)
+  end
+
+  def test_cloexec
+    return unless defined? Fcntl::FD_CLOEXEC
+    open(__FILE__) {|f|
+      assert(f.close_on_exec?)
+      g = f.dup
+      begin
+        assert(g.close_on_exec?)
+        f.reopen(g)
+        assert(f.close_on_exec?)
+      ensure
+        g.close
+      end
+      g = IO.new(f.fcntl(Fcntl::F_DUPFD))
+      begin
+        assert(g.close_on_exec?)
+      ensure
+        g.close
+      end
+    }
+    IO.pipe {|r,w|
+      assert(r.close_on_exec?) 
+      assert(w.close_on_exec?) 
+    }
+  end
+
+  def test_ioctl_linux
+    return if /linux/ !~ RUBY_PLATFORM
+
+    assert_nothing_raised do
+      File.open('/dev/urandom'){|f1|
+        entropy_count = ""
+        # get entropy count
+        f1.ioctl(0x80045200, entropy_count)
+      }
+    end
+
+    buf = ''
+    assert_nothing_raised do
+      fionread = 0x541B
+      File.open(__FILE__){|f1|
+        f1.ioctl(fionread, buf)
+      }
+    end
+    assert_equal(File.size(__FILE__), buf.unpack('i!')[0])
+  end
+
+  def test_ioctl_linux2
+    return if /linux/ !~ RUBY_PLATFORM
+    return if /^i?86|^x86_64/ !~ RUBY_PLATFORM
+    return if File.exist?('/dev/tty')
+
+    File.open('/dev/tty') { |f|
+      tiocgwinsz=0x5413
+      winsize=""
+      assert_nothing_raised {
+        f.ioctl(tiocgwinsz, winsize)
+      }
+    }
+  end
+
+  def test_setpos
+    mkcdtmpdir {
+      File.open("tmp.txt", "w") {|f|
+        f.puts "a"
+        f.puts "bc"
+        f.puts "def"
+      }
+      pos1 = pos2 = pos3 = nil
+      File.open("tmp.txt") {|f|
+        assert_equal("a\n", f.gets)
+        pos1 = f.pos
+        assert_equal("bc\n", f.gets)
+        pos2 = f.pos
+        assert_equal("def\n", f.gets)
+        pos3 = f.pos
+        assert_equal(nil, f.gets)
+      }
+      File.open("tmp.txt") {|f|
+        f.pos = pos1
+        assert_equal("bc\n", f.gets)
+        assert_equal("def\n", f.gets)
+        assert_equal(nil, f.gets)
+      }
+      File.open("tmp.txt") {|f|
+        f.pos = pos2
+        assert_equal("def\n", f.gets)
+        assert_equal(nil, f.gets)
+      }
+      File.open("tmp.txt") {|f|
+        f.pos = pos3
+        assert_equal(nil, f.gets)
+      }
+    }
+  end
+
+  def test_std_fileno
+    assert_equal(0, STDIN.fileno)
+    assert_equal(1, STDOUT.fileno)
+    assert_equal(2, STDERR.fileno)
+    assert_equal(0, $stdin.fileno)
+    assert_equal(1, $stdout.fileno)
+    assert_equal(2, $stderr.fileno)
   end
 end

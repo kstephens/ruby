@@ -76,6 +76,59 @@ pair_yield(VALUE pair)
 #endif
 
 #if defined HAVE_SOCKETPAIR
+
+static int
+rsock_socketpair0(int domain, int type, int protocol, int sv[2])
+{
+    int ret;
+
+#ifdef SOCK_CLOEXEC
+    static int try_sock_cloexec = 1;
+    if (try_sock_cloexec) {
+        ret = socketpair(domain, type|SOCK_CLOEXEC, protocol, sv);
+        if (ret == -1 && errno == EINVAL) {
+            /* SOCK_CLOEXEC is available since Linux 2.6.27.  Linux 2.6.18 fails with EINVAL */
+            ret = socketpair(domain, type, protocol, sv);
+            if (ret != -1) {
+                /* The reason of EINVAL may be other than SOCK_CLOEXEC.
+                 * So disable SOCK_CLOEXEC only if socketpair() succeeds without SOCK_CLOEXEC.
+                 * Ex. Socket.pair(:UNIX, 0xff) fails with EINVAL.
+                 */
+                try_sock_cloexec = 0;
+            }
+        }
+    }
+    else {
+        ret = socketpair(domain, type, protocol, sv);
+    }
+#else
+    ret = socketpair(domain, type, protocol, sv);
+#endif
+
+    if (ret == -1) {
+        return -1;
+    }
+
+    rb_fd_fix_cloexec(sv[0]);
+    rb_fd_fix_cloexec(sv[1]);
+
+    return ret;
+}
+
+static int
+rsock_socketpair(int domain, int type, int protocol, int sv[2])
+{
+    int ret;
+
+    ret = rsock_socketpair0(domain, type, protocol, sv);
+    if (ret < 0 && (errno == EMFILE || errno == ENFILE)) {
+        rb_gc();
+        ret = rsock_socketpair0(domain, type, protocol, sv);
+    }
+
+    return ret;
+}
+
 /*
  * call-seq:
  *   Socket.pair(domain, type, protocol)       => [socket1, socket2]
@@ -111,16 +164,12 @@ rsock_sock_s_socketpair(int argc, VALUE *argv, VALUE klass)
 
     setup_domain_and_type(domain, &d, type, &t);
     p = NUM2INT(protocol);
-    ret = socketpair(d, t, p, sp);
-    if (ret < 0 && (errno == EMFILE || errno == ENFILE)) {
-        rb_gc();
-        ret = socketpair(d, t, p, sp);
-    }
+    ret = rsock_socketpair(d, t, p, sp);
     if (ret < 0) {
 	rb_sys_fail("socketpair(2)");
     }
-    rb_fd_set_cloexec(sp[0]);
-    rb_fd_set_cloexec(sp[1]);
+    rb_fd_fix_cloexec(sp[0]);
+    rb_fd_fix_cloexec(sp[1]);
 
     s1 = rsock_init_sock(rb_obj_alloc(klass), sp[0]);
     s2 = rsock_init_sock(rb_obj_alloc(klass), sp[1]);

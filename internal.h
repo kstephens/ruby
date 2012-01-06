@@ -228,6 +228,9 @@ VALUE rb_thread_call_without_gvl(
     rb_blocking_function_t *func, void *data1,
     rb_unblock_function_t *ubf, void *data2);
 
+/* io.c */
+void rb_maygvl_fd_fix_cloexec(int fd);
+
 #if defined __GNUC__ && __GNUC__ >= 4
 #pragma GCC visibility pop
 #endif

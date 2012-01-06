@@ -1483,6 +1483,7 @@ str_nth_len(const char *p, const char *e, long *nthp, rb_encoding *enc)
             if (ISASCII(*p)) {
                 p2 = search_nonascii(p, e2);
                 if (!p2) {
+		    nth -= e2 - p;
 		    *nthp = nth;
                     return (char *)e2;
                 }
@@ -5233,14 +5234,14 @@ rb_str_tr_bang(VALUE str, VALUE src, VALUE repl)
  *  call-seq:
  *     str.tr(from_str, to_str)   => new_str
  *
- *  Returns a copy of <i>str</i> with the characters in <i>from_str</i> 
- *  replaced by the corresponding characters in <i>to_str</i>. If 
+ *  Returns a copy of <i>str</i> with the characters in <i>from_str</i>
+ *  replaced by the corresponding characters in <i>to_str</i>. If
  *  <i>to_str</i> is shorter than <i>from_str</i>, it is padded with its last
  *  character in order to maintain the correspondence.
  *
  *     "hello".tr('el', 'ip')      #=> "hippo"
  *     "hello".tr('aeiou', '*')    #=> "h*ll*"
- * 
+ *
  *  Both strings may use the c1-c2 notation to denote ranges of characters,
  *  and <i>from_str</i> may start with a <code>^</code>, which denotes all
  *  characters except those listed.

@@ -11,6 +11,8 @@ with all sufficient information, see the ChangeLog file.
 == Changes since the 1.9.3 release
 
 === C API updates
+* NUM2SHORT() and NUM2USHORT() added. They are similar to NUM2INT, but short.
+
 === Library updates (outstanding ones only)
 
 * builtin classes
@@ -32,6 +34,10 @@ with all sufficient information, see the ChangeLog file.
       * Time#to_s returned encoding defaults to US-ASCII but automatically
         transcodes to Encoding.default_internal if it is set.
 
+  * Fiber
+    * incompatible changes:
+      * Fiber#resume cannot resume a fiber which invokes "Fiber#transfer".
+
 * net/imap
   * new methods:
     * Net::IMAP.default_port
@@ -39,6 +45,10 @@ with all sufficient information, see the ChangeLog file.
     * Net::IMAP.default_tls_port
     * Net::IMAP.default_ssl_port
     * Net::IMAP.default_imaps_port
+
+* pathname
+  * extended method:
+    * Pathname#find returns an enumerator if no block is given.
 
 * resolv
   * new methods:

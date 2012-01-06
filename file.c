@@ -136,8 +136,10 @@ file_path_convert(VALUE name)
     if (rb_default_internal_encoding() != NULL
 	    && rb_usascii_encoding() != fname_encoding
 	    && rb_ascii8bit_encoding() != fname_encoding
-	    && (fs_encoding = rb_filesystem_encoding()) != fname_encoding) {
+	    && (fs_encoding = rb_filesystem_encoding()) != fname_encoding
+	    && !rb_enc_str_asciionly_p(name)) {
 	/* Don't call rb_filesystem_encoding() before US-ASCII and ASCII-8BIT */
+	/* fs_encoding should be ascii compatible */
 	name = rb_str_conv_enc(name, fname_encoding, fs_encoding);
     }
 #endif
@@ -3176,6 +3178,7 @@ file_expand_path(VALUE fname, VALUE dname, int abs_mode, VALUE result)
     if (tainted) OBJ_TAINT(result);
     rb_str_set_len(result, p - buf);
     rb_enc_check(fname, result);
+    ENC_CODERANGE_CLEAR(result);
     return result;
 }
 
@@ -3822,7 +3825,7 @@ rb_file_join(VALUE ary, VALUE sep)
     }
     if (!NIL_P(sep)) {
 	StringValue(sep);
-	len += RSTRING_LEN(sep) * RARRAY_LEN(ary) - 1;
+	len += RSTRING_LEN(sep) * (RARRAY_LEN(ary) - 1);
     }
     result = rb_str_buf_new(len);
     OBJ_INFECT(result, ary);
@@ -3914,10 +3917,10 @@ rb_file_s_truncate(VALUE klass, VALUE path, VALUE len)
     {
 	int tmpfd;
 
-	if ((tmpfd = open(StringValueCStr(path), 0)) < 0) {
+	if ((tmpfd = rb_cloexec_open(StringValueCStr(path), 0, 0)) < 0) {
 	    rb_sys_fail(RSTRING_PTR(path));
 	}
-        rb_fd_set_cloexec(tmpfd);
+        rb_update_max_fd(tmpfd);
 	if (chsize(tmpfd, pos) < 0) {
 	    close(tmpfd);
 	    rb_sys_fail(RSTRING_PTR(path));
@@ -5063,9 +5066,9 @@ static int
 file_load_ok(const char *path)
 {
     int ret = 1;
-    int fd = open(path, O_RDONLY);
+    int fd = rb_cloexec_open(path, O_RDONLY, 0);
     if (fd == -1) return 0;
-    rb_fd_set_cloexec(fd);
+    rb_update_max_fd(fd);
 #if !defined DOSISH
     {
 	struct stat st;

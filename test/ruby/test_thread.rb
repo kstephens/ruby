@@ -186,7 +186,7 @@ class TestThread < Test::Unit::TestCase
     t1 = Time.now
     t = t1-t0
 
-    assert_block { timeout*0.9 < t && t < timeout*1.1 }
+    assert_operator(timeout*0.9, :<, t)
     assert(locked)
   end
 
@@ -231,10 +231,10 @@ class TestThread < Test::Unit::TestCase
   def test_priority
     c1 = c2 = 0
     t1 = Thread.new { loop { c1 += 1 } }
-    t1.priority = -1
+    t1.priority = 3
     t2 = Thread.new { loop { c2 += 1 } }
     t2.priority = -3
-    assert_equal(-1, t1.priority)
+    assert_equal(3, t1.priority)
     assert_equal(-3, t2.priority)
     sleep 0.5
     5.times do
@@ -684,5 +684,20 @@ class TestThreadGroup < Test::Unit::TestCase
     t = Thread.new{}
     t.join
     assert_equal(nil, t.backtrace)
+  end
+
+  def test_thread_timer_and_interrupt
+    bug5757 = '[ruby-dev:44985]'
+    t0 = Time.now.to_f
+    pid = spawn(EnvUtil.rubybin, '-e', 'r,=IO.pipe;r.read')
+    sleep 1;
+    Process.kill(:SIGINT, pid)
+    Process.wait(pid)
+    s = $?
+    assert_equal([false, true, false],
+                 [s.exited?, s.signaled?, s.stopped?],
+                 "[s.exited?, s.signaled?, s.stopped?]")
+    t1 = Time.now.to_f
+    assert_in_delta(t1 - t0, 1, 1)
   end
 end
