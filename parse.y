@@ -40,6 +40,7 @@
 
 #ifndef RIPPER
 static ID register_symid(ID, const char *, long, rb_encoding *);
+static ID register_symid_str(ID, VALUE);
 #define REGISTER_SYMID(id, name) register_symid((id), (name), strlen(name), enc)
 #include "id.c"
 #endif
@@ -10391,22 +10392,34 @@ static ID
 register_symid(ID id, const char *name, long len, rb_encoding *enc)
 {
     VALUE str = rb_enc_str_new(name, len, enc);
+    return register_symid_str(id, str);
+}
+
+static ID
+register_symid_str(ID id, VALUE str)
+{
     OBJ_FREEZE(str);
     st_add_direct(global_symbols.sym_id, (st_data_t)str, id);
     st_add_direct(global_symbols.id_str, id, (st_data_t)str);
     return id;
 }
 
+static int
+sym_check_asciionly(VALUE str)
+{
+    int cr = rb_enc_str_coderange(str);
+    if (cr == ENC_CODERANGE_BROKEN) {
+    	rb_raise(rb_eEncodingError, "invalid encoding symbol");
+    }
+    return cr == ENC_CODERANGE_7BIT;
+}
+
+static ID intern_str(VALUE str);
+
 ID
 rb_intern3(const char *name, long len, rb_encoding *enc)
 {
-    const char *m = name;
-    const char *e = m + len;
-    unsigned char c;
     VALUE str;
-    ID id;
-    long last;
-    int mb;
     st_data_t data;
     struct RString fake_str;
     fake_str.basic.flags = T_STRING|RSTRING_NOEMBED;
@@ -10418,12 +10431,29 @@ rb_intern3(const char *name, long len, rb_encoding *enc)
     rb_enc_associate(str, enc);
     OBJ_FREEZE(str);
 
-    if (rb_enc_str_coderange(str) == ENC_CODERANGE_BROKEN) {
-    	rb_raise(rb_eEncodingError, "invalid encoding symbol");
-    }
+    if (sym_check_asciionly(str)) enc = rb_usascii_encoding();
 
     if (st_lookup(global_symbols.sym_id, str, &data))
 	return (ID)data;
+
+    str = rb_enc_str_new(name, len, enc); /* make true string */
+    return intern_str(str);
+}
+
+static ID
+intern_str(VALUE str)
+{
+    const char *name, *m, *e;
+    long len, last;
+    rb_encoding *enc;
+    unsigned char c;
+    ID id;
+    int mb;
+
+    RSTRING_GETMEM(str, name, len);
+    m = name;
+    e = m + len;
+    enc = rb_enc_get(str);
 
     if (rb_cString && !rb_enc_asciicompat(enc)) {
 	id = ID_JUNK;
@@ -10486,32 +10516,17 @@ rb_intern3(const char *name, long len, rb_encoding *enc)
 	}
 	break;
     }
-    mb = 0;
     if (!rb_enc_isdigit(*m, enc)) {
 	while (m <= name + last && is_identchar(m, e, enc)) {
 	    if (ISASCII(*m)) {
 		m++;
 	    }
 	    else {
-		mb = 1;
 		m += rb_enc_mbclen(m, e, enc);
 	    }
 	}
     }
     if (m - name < len) id = ID_JUNK;
-    if (enc != rb_usascii_encoding()) {
-	/*
-	 * this clause makes sense only when called from other than
-	 * rb_intern_str() taking care of code-range.
-	 */
-	if (!mb) {
-	    for (; m <= name + len; ++m) {
-		if (!ISASCII(*m)) goto mbstr;
-	    }
-	    enc = rb_usascii_encoding();
-	}
-      mbstr:;
-    }
   new_id:
     if (global_symbols.last_id >= ~(ID)0 >> (ID_SCOPE_SHIFT+RUBY_SPECIAL_SHIFT)) {
 	if (len > 20) {
@@ -10525,7 +10540,7 @@ rb_intern3(const char *name, long len, rb_encoding *enc)
     }
     id |= ++global_symbols.last_id << ID_SCOPE_SHIFT;
   id_register:
-    return register_symid(id, name, len, enc);
+    return register_symid_str(id, str);
 }
 
 ID
@@ -10545,17 +10560,20 @@ ID
 rb_intern_str(VALUE str)
 {
     rb_encoding *enc;
-    ID id;
+    st_data_t id;
+    int ascii = sym_check_asciionly(str);
 
-    if (rb_enc_str_coderange(str) == ENC_CODERANGE_7BIT) {
-	enc = rb_usascii_encoding();
+    if (st_lookup(global_symbols.sym_id, str, &id))
+	return (ID)id;
+    if (ascii && (enc = rb_usascii_encoding()) != rb_enc_get(str)) {
+	str = rb_str_dup(str);
+	rb_enc_associate(str, enc);
+	OBJ_FREEZE(str);
     }
     else {
-	enc = rb_enc_get(str);
+	str = rb_str_dup_frozen(str);
     }
-    id = rb_intern3(RSTRING_PTR(str), RSTRING_LEN(str), enc);
-    RB_GC_GUARD(str);
-    return id;
+    return intern_str(str);
 }
 
 VALUE
@@ -10734,9 +10752,7 @@ rb_check_id(volatile VALUE *namep)
 	*namep = name;
     }
 
-    if (rb_enc_str_coderange(name) == ENC_CODERANGE_BROKEN) {
-	rb_raise(rb_eEncodingError, "invalid encoding symbol");
-    }
+    sym_check_asciionly(name);
 
     if (st_lookup(global_symbols.sym_id, (st_data_t)name, &id))
 	return (ID)id;

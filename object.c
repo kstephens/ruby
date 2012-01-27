@@ -285,7 +285,7 @@ rb_obj_clone(VALUE obj)
     if (FL_TEST(singleton, FL_SINGLETON)) {
 	rb_singleton_class_attached(singleton, clone);
     }
-    RBASIC(clone)->flags = (RBASIC(obj)->flags | FL_TEST(clone, FL_TAINT) | FL_TEST(clone, FL_UNTRUSTED)) & ~(FL_FREEZE|FL_FINALIZE|FL_MARK);
+    RBASIC(clone)->flags = (RBASIC(obj)->flags | FL_TEST(clone, FL_TAINT) | FL_TEST(clone, FL_UNTRUSTED)) & ~(FL_FREEZE|FL_FINALIZE);
     init_copy(clone, obj);
     rb_funcall(clone, id_init_clone, 1, obj);
     RBASIC(clone)->flags |= RBASIC(obj)->flags & FL_FREEZE;
@@ -368,12 +368,25 @@ rb_any_to_s(VALUE obj)
     return str;
 }
 
+/*
+ * If the default external encoding is ASCII compatible, the encoding of
+ * inspected result must be compatible with it.
+ * If the default external encoding is ASCII incomapatible,
+ * the result must be ASCII only.
+ */
 VALUE
 rb_inspect(VALUE obj)
 {
-    VALUE s = rb_obj_as_string(rb_funcall(obj, id_inspect, 0, 0));
-    rb_enc_check(rb_enc_default_external(), s);
-    return s;
+    VALUE str = rb_obj_as_string(rb_funcall(obj, id_inspect, 0, 0));
+    rb_encoding *ext = rb_default_external_encoding();
+    if (!rb_enc_asciicompat(ext)) {
+	if (!rb_enc_str_asciionly_p(str))
+	    rb_raise(rb_eEncCompatError, "inspected result must be ASCII only if default external encoding is ASCII incompatible");
+	return str;
+    }
+    if (rb_enc_get(str) != ext && !rb_enc_str_asciionly_p(str))
+	rb_raise(rb_eEncCompatError, "inspected result must be ASCII only or use the same encoding with default external");
+    return str;
 }
 
 static int
@@ -425,9 +438,9 @@ inspect_obj(VALUE obj, VALUE str, int recur)
  * Returns a string containing a human-readable representation of <i>obj</i>.
  * By default, if the <i>obj</i> has instance variables, show the class name
  * and instance variable details which is the list of the name and the result
- * of <i>inspect</i> method for each instance variables.
+ * of <i>inspect</i> method for each instance variable.
  * Otherwise uses the <i>to_s</i> method to generate the string.
- * If the <i>to_s</i> mthoed is overridden, uses it.
+ * If the <i>to_s</i> method is overridden, uses it.
  * User defined classes should override this method to make better
  * representation of <i>obj</i>.  When overriding this method, it should
  * return a string whose encoding is compatible with the default external
@@ -490,6 +503,15 @@ rb_obj_inspect(VALUE obj)
  *
  *  Returns <code>true</code> if <i>obj</i> is an instance of the given
  *  class. See also <code>Object#kind_of?</code>.
+ *
+ *     class A;     end
+ *     class B < A; end
+ *     class C < B; end
+ *
+ *     b = B.new
+ *     b.instance_of? A   #=> false
+ *     b.instance_of? B   #=> true
+ *     b.instance_of? C   #=> false
  */
 
 VALUE
@@ -524,11 +546,13 @@ rb_obj_is_instance_of(VALUE obj, VALUE c)
  *     end
  *     class B < A; end
  *     class C < B; end
+ *
  *     b = B.new
- *     b.instance_of? A   #=> false
- *     b.instance_of? B   #=> true
- *     b.instance_of? C   #=> false
- *     b.instance_of? M   #=> false
+ *     b.is_a? A          #=> true
+ *     b.is_a? B          #=> true
+ *     b.is_a? C          #=> false
+ *     b.is_a? M          #=> true
+ *
  *     b.kind_of? A       #=> true
  *     b.kind_of? B       #=> true
  *     b.kind_of? C       #=> false
@@ -2570,6 +2594,41 @@ rb_f_array(VALUE obj, VALUE arg)
     return rb_Array(arg);
 }
 
+VALUE
+rb_Hash(VALUE val)
+{
+    VALUE tmp;
+
+    if (NIL_P(val)) return rb_hash_new();
+    tmp = rb_check_hash_type(val);
+    if (NIL_P(tmp)) {
+	if (RB_TYPE_P(val, T_ARRAY) && RARRAY_LEN(val) == 0)
+	    return rb_hash_new();
+	rb_raise(rb_eTypeError, "can't convert %s into Hash", rb_obj_classname(val));
+    }
+    return tmp;
+}
+
+/*
+ *  call-seq:
+ *     Hash(arg)    -> hash
+ *
+ *  Converts <i>arg</i> to a <code>Hash</code> by calling
+ *  <i>arg</i><code>.to_hash</code>. Returns an empty <code>Hash</code> when
+ *  <i>arg</i> is <tt>nil</tt> or <tt>[]</tt>.
+ *
+ *     Hash([])          #=> {}
+ *     Hash(nil)         #=> nil
+ *     Hash(key: :value) #=> {:key => :value}
+ *     Hash([1, 2, 3])   #=> TypeError
+ */
+
+static VALUE
+rb_f_hash(VALUE obj, VALUE arg)
+{
+    return rb_Hash(arg);
+}
+
 /*
  *  Document-class: Class
  *
@@ -2815,6 +2874,7 @@ Init_Object(void)
 
     rb_define_global_function("String", rb_f_string, 1);
     rb_define_global_function("Array", rb_f_array, 1);
+    rb_define_global_function("Hash", rb_f_hash, 1);
 
     rb_cNilClass = rb_define_class("NilClass", rb_cObject);
     rb_define_method(rb_cNilClass, "to_i", nil_to_i, 0);

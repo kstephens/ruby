@@ -271,6 +271,34 @@ class TestM17N < Test::Unit::TestCase
     Encoding.default_external = orig_ext
   end
 
+  def test_object_inspect_external
+    orig_v, $VERBOSE = $VERBOSE, false
+    orig_int, Encoding.default_internal = Encoding.default_internal, nil
+    orig_ext = Encoding.default_external
+    o = Object.new
+
+    Encoding.default_external = Encoding::UTF_16BE
+    def o.inspect
+      "abc"
+    end
+    assert_nothing_raised(Encoding::CompatibilityError) { [o].inspect }
+
+    def o.inspect
+      "abc".encode(Encoding.default_external)
+    end
+    assert_raise(Encoding::CompatibilityError) { [o].inspect }
+
+    Encoding.default_external = Encoding::US_ASCII
+    def o.inspect
+      "\u3042"
+    end
+    assert_raise(Encoding::CompatibilityError) { [o].inspect }
+  ensure
+    Encoding.default_internal = orig_int
+    Encoding.default_external = orig_ext
+    $VERBOSE = orig_v
+  end
+
   def test_str_dump
     [
       e("\xfe"),
@@ -1161,6 +1189,7 @@ class TestM17N < Test::Unit::TestCase
 
   def test_str_concat
     assert_equal(1, "".concat(0xA2).size)
+    assert_equal(Encoding::ASCII_8BIT, "".force_encoding("US-ASCII").concat(0xA2).encoding)
     assert_equal("A\x84\x31\xA4\x39".force_encoding("GB18030"),
                  "A".force_encoding("GB18030") << 0x8431A439)
   end
@@ -1220,6 +1249,14 @@ class TestM17N < Test::Unit::TestCase
       2206368128.chr(Encoding::UTF_8)
     }
     assert_not_match(/-\d+ out of char range/, e.message)
+
+    assert_raise(RangeError){ 0x80.chr("US-ASCII") }
+    assert_raise(RangeError){ 0x80.chr("SHIFT_JIS") }
+    assert_raise(RangeError){ 0xE0.chr("SHIFT_JIS") }
+    assert_raise(RangeError){ 0x100.chr("SHIFT_JIS") }
+    assert_raise(RangeError){ 0xA0.chr("EUC-JP") }
+    assert_raise(RangeError){ 0x100.chr("EUC-JP") }
+    assert_raise(RangeError){ 0xA1A0.chr("EUC-JP") }
   end
 
   def test_marshal

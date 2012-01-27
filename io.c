@@ -4786,11 +4786,19 @@ extract_binmode(VALUE opthash, int *fmode)
     if (!NIL_P(opthash)) {
 	VALUE v;
 	v = rb_hash_aref(opthash, sym_textmode);
-	if (!NIL_P(v) && RTEST(v))
-            *fmode |= FMODE_TEXTMODE;
+	if (!NIL_P(v)) {
+	    if (*fmode & FMODE_TEXTMODE)
+		rb_raise(rb_eArgError, "textmode specified twice");
+	    if (RTEST(v))
+		*fmode |= FMODE_TEXTMODE;
+	}
 	v = rb_hash_aref(opthash, sym_binmode);
-	if (!NIL_P(v) && RTEST(v))
-            *fmode |= FMODE_BINMODE;
+	if (!NIL_P(v)) {
+	    if (*fmode & FMODE_BINMODE)
+		rb_raise(rb_eArgError, "binmode specified twice");
+	    if (RTEST(v))
+		*fmode |= FMODE_BINMODE;
+	}
 
 	if ((*fmode & FMODE_BINMODE) && (*fmode & FMODE_TEXTMODE))
 	    rb_raise(rb_eArgError, "both textmode and binmode specified");
@@ -4859,10 +4867,13 @@ rb_io_extract_modeenc(VALUE *vmode_p, VALUE *vperm_p, VALUE opthash,
     else {
 	VALUE v;
 	extract_binmode(opthash, &fmode);
+	if (fmode & FMODE_BINMODE) {
 #ifdef O_BINARY
-	if (fmode & FMODE_BINMODE)
             oflags |= O_BINARY;
 #endif
+	    if (!has_enc)
+		rb_io_ext_int_to_encs(rb_ascii8bit_encoding(), NULL, &enc, &enc2);
+	}
 	if (!has_vmode) {
 	    v = rb_hash_aref(opthash, sym_mode);
 	    if (!NIL_P(v)) {
@@ -9025,31 +9036,35 @@ seek_before_access(VALUE argp)
  *     IO.read(name, [length [, offset]] )   -> string
  *     IO.read(name, [length [, offset]], open_args)   -> string
  *
- *  Opens the file, optionally seeks to the given <i>offset</i>, then returns
- *  <i>length</i> bytes (defaulting to the rest of the file).
- *  <code>read</code> ensures the file is closed before returning.
+ *  Opens the file, optionally seeks to the given +offset+, then returns
+ *  +length+ bytes (defaulting to the rest of the file).  <code>read</code>
+ *  ensures the file is closed before returning.
  *
  *  If the last argument is a hash, it specifies option for internal
  *  open().  The key would be the following.  open_args: is exclusive
  *  to others.
  *
- *   encoding: string or encoding
+ *  encoding::
+ *    string or encoding
  *
- *    specifies encoding of the read string.  encoding will be ignored
+ *    specifies encoding of the read string.  +encoding+ will be ignored
  *    if length is specified.
  *
- *   mode: string
+ *  mode::
+ *    string
  *
- *    specifies mode argument for open().  it should start with "r"
- *    otherwise it would cause error.
+ *    specifies mode argument for open().  It should start with "r"
+ *    otherwise it will cause an error.
  *
- *   open_args: array of strings
+ *  open_args:: array of strings
  *
  *    specifies arguments for open() as an array.
  *
- *     IO.read("testfile")           #=> "This is line one\nThis is line two\nThis is line three\nAnd so on...\n"
- *     IO.read("testfile", 20)       #=> "This is line one\nThi"
- *     IO.read("testfile", 20, 10)   #=> "ne one\nThis is line "
+ *  Examples:
+ *
+ *    IO.read("testfile")           #=> "This is line one\nThis is line two\nThis is line three\nAnd so on...\n"
+ *    IO.read("testfile", 20)       #=> "This is line one\nThi"
+ *    IO.read("testfile", 20, 10)   #=> "ne one\nThis is line "
  */
 
 static VALUE

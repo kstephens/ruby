@@ -27,6 +27,8 @@ struct st_table_entry {
 
 #define ST_DEFAULT_MAX_DENSITY 5
 #define ST_DEFAULT_INIT_TABLE_SIZE 11
+#define ST_DEFAULT_SECOND_TABLE_SIZE 19
+#define MAX_PACKED_NUMHASH (ST_DEFAULT_INIT_TABLE_SIZE/2)
 
     /*
      * DEFAULT_MAX_DENSITY is the default for the largest we allow the
@@ -62,19 +64,49 @@ static void rehash(st_table *);
 #ifdef RUBY
 #define malloc xmalloc
 #define calloc xcalloc
+#define realloc xrealloc
 #define free(x) xfree(x)
 #endif
 
 #define numberof(array) (int)(sizeof(array) / sizeof((array)[0]))
 
-#define alloc(type) (type*)malloc((size_t)sizeof(type))
-#define Calloc(n,s) (char*)calloc((n),(s))
-
 #define EQUAL(table,x,y) ((x)==(y) || (*(table)->type->compare)((x),(y)) == 0)
 
-/* remove cast to unsigned int in the future */
-#define do_hash(key,table) (unsigned int)(st_index_t)(*(table)->type->hash)((key))
+#define do_hash(key,table) (st_index_t)(*(table)->type->hash)((key))
 #define do_hash_bin(key,table) (do_hash((key), (table))%(table)->num_bins)
+
+/* preparation for possible allocation improvements */
+#define st_alloc_entry() (st_table_entry *)malloc(sizeof(st_table_entry))
+#define st_free_entry(entry) free(entry)
+#define st_alloc_table() (st_table *)malloc(sizeof(st_table))
+#define st_dealloc_table(table) free(table)
+#define st_alloc_bins(size) (st_table_entry **)calloc(size, sizeof(st_table_entry *))
+#define st_free_bins(bins, size) free(bins)
+static inline st_table_entry**
+st_realloc_bins(st_table_entry **bins, st_index_t newsize, st_index_t oldsize)
+{
+    bins = (st_table_entry **) realloc(bins, newsize * sizeof(st_table_entry *));
+    memset(bins, 0, newsize * sizeof(st_table_entry *));
+    return bins;
+}
+
+/* preparation for possible packing improvements */
+#define PKEY_POS(i, num_bins) ((i)*2)
+#define PVAL_POS(i, num_bins) ((i)*2+1)
+#define PKEY(table, i) (st_data_t)(table)->bins[PKEY_POS(i, (table)->num_bins)]
+#define PVAL(table, i) (st_data_t)(table)->bins[PVAL_POS(i, (table)->num_bins)]
+#define PKEY_SET(table, i, v) do{ (table)->bins[PKEY_POS(i, (table)->num_bins)] = (st_table_entry *)(v); } while(0)
+#define PVAL_SET(table, i, v) do{ (table)->bins[PVAL_POS(i, (table)->num_bins)] = (st_table_entry *)(v); } while(0)
+/* this function depends much on packed layout, so that it placed here */
+static inline void
+remove_packed_entry(st_table *table, st_index_t i)
+{
+    table->num_entries--;
+    if (i < table->num_entries) {
+	memmove(table->bins + 2*i, table->bins + 2*(i+1),
+		sizeof(st_table_entry *) * 2 * (table->num_entries - i));
+    }
+}
 
 /*
  * MINSIZE is the minimum size of a dictionary.
@@ -86,8 +118,8 @@ static void rehash(st_table *);
 Table of prime numbers 2^n+a, 2<=n<=30.
 */
 static const unsigned int primes[] = {
-	8 + 3,
-	16 + 3,
+	ST_DEFAULT_INIT_TABLE_SIZE,
+	ST_DEFAULT_SECOND_TABLE_SIZE,
 	32 + 5,
 	64 + 3,
 	128 + 3,
@@ -162,8 +194,6 @@ stat_col(void)
 }
 #endif
 
-#define MAX_PACKED_NUMHASH (ST_DEFAULT_INIT_TABLE_SIZE/2)
-
 st_table*
 st_init_table_with_size(const struct st_hash_type *type, st_index_t size)
 {
@@ -184,12 +214,12 @@ st_init_table_with_size(const struct st_hash_type *type, st_index_t size)
 
     size = new_size(size);	/* round up to prime number */
 
-    tbl = alloc(st_table);
+    tbl = st_alloc_table();
     tbl->type = type;
     tbl->num_entries = 0;
     tbl->entries_packed = type == &type_numhash && size/2 <= MAX_PACKED_NUMHASH;
     tbl->num_bins = size;
-    tbl->bins = (st_table_entry **)Calloc(size, sizeof(st_table_entry*));
+    tbl->bins = st_alloc_bins(size);
     tbl->head = 0;
     tbl->tail = 0;
 
@@ -254,7 +284,7 @@ st_clear(st_table *table)
 	table->bins[i] = 0;
 	while (ptr != 0) {
 	    next = ptr->next;
-	    free(ptr);
+	    st_free_entry(ptr);
 	    ptr = next;
 	}
     }
@@ -267,8 +297,8 @@ void
 st_free_table(st_table *table)
 {
     st_clear(table);
-    free(table->bins);
-    free(table);
+    st_free_bins(table->bins, table->num_bins);
+    st_dealloc_table(table);
 }
 
 size_t
@@ -307,40 +337,48 @@ count_collision(const struct st_hash_type *type)
 #define FOUND_ENTRY
 #endif
 
-#define FIND_ENTRY(table, ptr, hash_val, bin_pos) do {\
-    (bin_pos) = (hash_val)%(table)->num_bins;\
-    (ptr) = (table)->bins[(bin_pos)];\
-    FOUND_ENTRY;\
-    if (PTR_NOT_EQUAL((table), (ptr), (hash_val), key)) {\
-	COLLISION;\
-	while (PTR_NOT_EQUAL((table), (ptr)->next, (hash_val), key)) {\
-	    (ptr) = (ptr)->next;\
-	}\
-	(ptr) = (ptr)->next;\
-    }\
-} while (0)
+static st_table_entry *
+find_entry(st_table *table, st_data_t key, st_index_t hash_val, st_index_t bin_pos)
+{
+    register st_table_entry *ptr = table->bins[bin_pos];
+    FOUND_ENTRY;
+    if (PTR_NOT_EQUAL(table, ptr, hash_val, key)) {
+	COLLISION;
+	while (PTR_NOT_EQUAL(table, ptr->next, hash_val, key)) {
+	    ptr = ptr->next;
+	}
+	ptr = ptr->next;
+    }
+    return ptr;
+}
+
+static inline st_index_t
+find_packed_index(st_table *table, st_data_t key)
+{
+    st_index_t i = 0;
+    while (i < table->num_entries && PKEY(table, i) != key) i++;
+    return i;
+}
 
 #define collision_check 0
 
 int
 st_lookup(st_table *table, register st_data_t key, st_data_t *value)
 {
-    st_index_t hash_val, bin_pos;
+    st_index_t hash_val;
     register st_table_entry *ptr;
 
     if (table->entries_packed) {
-        st_index_t i;
-        for (i = 0; i < table->num_entries; i++) {
-            if ((st_data_t)table->bins[i*2] == key) {
-                if (value !=0) *value = (st_data_t)table->bins[i*2+1];
-                return 1;
-            }
-        }
+        st_index_t i = find_packed_index(table, key);
+	if (i < table->num_entries) {
+	    if (value != 0) *value = PVAL(table, i);
+	    return 1;
+	}
         return 0;
     }
 
     hash_val = do_hash(key, table);
-    FIND_ENTRY(table, ptr, hash_val, bin_pos);
+    ptr = find_entry(table, key, hash_val, hash_val % table->num_bins);
 
     if (ptr == 0) {
 	return 0;
@@ -354,22 +392,20 @@ st_lookup(st_table *table, register st_data_t key, st_data_t *value)
 int
 st_get_key(st_table *table, register st_data_t key, st_data_t *result)
 {
-    st_index_t hash_val, bin_pos;
+    st_index_t hash_val;
     register st_table_entry *ptr;
 
     if (table->entries_packed) {
-        st_index_t i;
-        for (i = 0; i < table->num_entries; i++) {
-            if ((st_data_t)table->bins[i*2] == key) {
-                if (result !=0) *result = (st_data_t)table->bins[i*2];
-                return 1;
-            }
-        }
+        st_index_t i = find_packed_index(table, key);
+	if (i < table->num_entries) {
+	    if (result != 0) *result = PKEY(table, i);
+	    return 1;
+	}
         return 0;
     }
 
     hash_val = do_hash(key, table);
-    FIND_ENTRY(table, ptr, hash_val, bin_pos);
+    ptr = find_entry(table, key, hash_val, hash_val % table->num_bins);
 
     if (ptr == 0) {
 	return 0;
@@ -383,85 +419,93 @@ st_get_key(st_table *table, register st_data_t key, st_data_t *result)
 #undef collision_check
 #define collision_check 1
 
-#define MORE_PACKABLE_P(table) \
-    ((st_index_t)((table)->num_entries+1) * 2 <= (table)->num_bins && \
-     (table)->num_entries+1 <= MAX_PACKED_NUMHASH)
+static inline void
+add_direct(st_table * table, st_data_t key, st_data_t value,
+	st_index_t hash_val, register st_index_t bin_pos)
+{
+    register st_table_entry *entry;
+    if (table->num_entries > ST_DEFAULT_MAX_DENSITY * table->num_bins) {
+	rehash(table);
+        bin_pos = hash_val % table->num_bins;
+    }
 
-#define ADD_DIRECT(table, key, value, hash_val, bin_pos)\
-do {\
-    st_table_entry *entry;\
-    if ((table)->num_entries > ST_DEFAULT_MAX_DENSITY * (table)->num_bins) {\
-	rehash(table);\
-        (bin_pos) = (hash_val) % (table)->num_bins;\
-    }\
-    \
-    entry = alloc(st_table_entry);\
-    \
-    entry->hash = (hash_val);\
-    entry->key = (key);\
-    entry->record = (value);\
-    entry->next = (table)->bins[(bin_pos)];\
-    if ((table)->head != 0) {\
-	entry->fore = 0;\
-	(entry->back = (table)->tail)->fore = entry;\
-	(table)->tail = entry;\
-    }\
-    else {\
-	(table)->head = (table)->tail = entry;\
-	entry->fore = entry->back = 0;\
-    }\
-    (table)->bins[(bin_pos)] = entry;\
-    (table)->num_entries++;\
-} while (0)
+    entry = st_alloc_entry();
+
+    entry->next = table->bins[bin_pos];
+    table->bins[bin_pos] = entry;
+    entry->hash = hash_val;
+    entry->key = key;
+    entry->record = value;
+    if (table->head != 0) {
+	entry->fore = 0;
+	(entry->back = table->tail)->fore = entry;
+	table->tail = entry;
+    }
+    else {
+	table->head = table->tail = entry;
+	entry->fore = entry->back = 0;
+    }
+    table->num_entries++;
+}
 
 static void
 unpack_entries(register st_table *table)
 {
     st_index_t i;
-    struct st_table_entry *packed_bins[MAX_PACKED_NUMHASH*2];
+    struct st_table_entry *packed_bins[ST_DEFAULT_INIT_TABLE_SIZE];
     st_table tmp_table = *table;
 
-    memcpy(packed_bins, table->bins, sizeof(struct st_table_entry *) * table->num_entries*2);
+    memcpy(packed_bins, table->bins, sizeof(st_table_entry *) * ST_DEFAULT_INIT_TABLE_SIZE);
     table->bins = packed_bins;
     tmp_table.entries_packed = 0;
     tmp_table.num_entries = 0;
     memset(tmp_table.bins, 0, sizeof(struct st_table_entry *) * tmp_table.num_bins);
     for (i = 0; i < table->num_entries; i++) {
-        st_insert(&tmp_table, (st_data_t)packed_bins[i*2], (st_data_t)packed_bins[i*2+1]);
+	/* packed table should be numhash */
+	st_index_t key = PKEY(table, i), value = PVAL(table, i);
+	add_direct(&tmp_table, key, value, key, key % tmp_table.num_bins);
     }
     *table = tmp_table;
 }
 
+static void
+add_packed_direct(st_table *table, st_data_t key, st_data_t value)
+{
+    if (table->num_entries < MAX_PACKED_NUMHASH) {
+	st_index_t i = table->num_entries++;
+	PKEY_SET(table, i, key);
+	PVAL_SET(table, i, value);
+    }
+    else {
+	unpack_entries(table);
+	add_direct(table, key, value, key, key % table->num_bins);
+    }
+}
+
+
 int
 st_insert(register st_table *table, register st_data_t key, st_data_t value)
 {
-    st_index_t hash_val, bin_pos;
+    st_index_t hash_val;
+    register st_index_t bin_pos;
     register st_table_entry *ptr;
 
     if (table->entries_packed) {
-        st_index_t i;
-        for (i = 0; i < table->num_entries; i++) {
-            if ((st_data_t)table->bins[i*2] == key) {
-                table->bins[i*2+1] = (struct st_table_entry*)value;
-                return 1;
-            }
+        st_index_t i = find_packed_index(table, key);
+	if (i < table->num_entries) {
+	    PVAL_SET(table, i, value);
+	    return 1;
         }
-        if (MORE_PACKABLE_P(table)) {
-            i = table->num_entries++;
-            table->bins[i*2] = (struct st_table_entry*)key;
-            table->bins[i*2+1] = (struct st_table_entry*)value;
-            return 0;
-        }
-        else {
-            unpack_entries(table);
-        }
+	add_packed_direct(table, key, value);
+	return 0;
     }
 
     hash_val = do_hash(key, table);
-    FIND_ENTRY(table, ptr, hash_val, bin_pos);
+    bin_pos = hash_val % table->num_bins;
+    ptr = find_entry(table, key, hash_val, bin_pos);
 
     if (ptr == 0) {
-	ADD_DIRECT(table, key, value, hash_val, bin_pos);
+	add_direct(table, key, value, hash_val, bin_pos);
 	return 0;
     }
     else {
@@ -474,34 +518,27 @@ int
 st_insert2(register st_table *table, register st_data_t key, st_data_t value,
 	   st_data_t (*func)(st_data_t))
 {
-    st_index_t hash_val, bin_pos;
+    st_index_t hash_val;
+    register st_index_t bin_pos;
     register st_table_entry *ptr;
 
     if (table->entries_packed) {
-        st_index_t i;
-        for (i = 0; i < table->num_entries; i++) {
-            if ((st_data_t)table->bins[i*2] == key) {
-                table->bins[i*2+1] = (struct st_table_entry*)value;
-                return 1;
-            }
+        st_index_t i = find_packed_index(table, key);
+	if (i < table->num_entries) {
+	    PVAL_SET(table, i, value);
+	    return 1;
         }
-        if (MORE_PACKABLE_P(table)) {
-            i = table->num_entries++;
-            table->bins[i*2] = (struct st_table_entry*)key;
-            table->bins[i*2+1] = (struct st_table_entry*)value;
-            return 0;
-        }
-        else {
-            unpack_entries(table);
-        }
+	add_packed_direct(table, key, value);
+	return 0;
     }
 
     hash_val = do_hash(key, table);
-    FIND_ENTRY(table, ptr, hash_val, bin_pos);
+    bin_pos = hash_val % table->num_bins;
+    ptr = find_entry(table, key, hash_val, bin_pos);
 
     if (ptr == 0) {
 	key = (*func)(key);
-	ADD_DIRECT(table, key, value, hash_val, bin_pos);
+	add_direct(table, key, value, hash_val, bin_pos);
 	return 0;
     }
     else {
@@ -513,36 +550,25 @@ st_insert2(register st_table *table, register st_data_t key, st_data_t value,
 void
 st_add_direct(st_table *table, st_data_t key, st_data_t value)
 {
-    st_index_t hash_val, bin_pos;
+    st_index_t hash_val;
 
     if (table->entries_packed) {
-        int i;
-        if (MORE_PACKABLE_P(table)) {
-            i = table->num_entries++;
-            table->bins[i*2] = (struct st_table_entry*)key;
-            table->bins[i*2+1] = (struct st_table_entry*)value;
-            return;
-        }
-        else {
-            unpack_entries(table);
-        }
+	add_packed_direct(table, key, value);
+	return;
     }
 
     hash_val = do_hash(key, table);
-    bin_pos = hash_val % table->num_bins;
-    ADD_DIRECT(table, key, value, hash_val, bin_pos);
+    add_direct(table, key, value, hash_val, hash_val % table->num_bins);
 }
 
 static void
 rehash(register st_table *table)
 {
     register st_table_entry *ptr, **new_bins;
-    st_index_t i, new_num_bins, hash_val;
+    st_index_t new_num_bins, hash_val;
 
     new_num_bins = new_size(table->num_bins+1);
-    new_bins = (st_table_entry**)
-	xrealloc(table->bins, new_num_bins * sizeof(st_table_entry*));
-    for (i = 0; i < new_num_bins; ++i) new_bins[i] = 0;
+    new_bins = st_realloc_bins(table->bins, new_num_bins, table->num_bins);
     table->num_bins = new_num_bins;
     table->bins = new_bins;
 
@@ -563,17 +589,16 @@ st_copy(st_table *old_table)
     st_index_t num_bins = old_table->num_bins;
     st_index_t hash_val;
 
-    new_table = alloc(st_table);
+    new_table = st_alloc_table();
     if (new_table == 0) {
 	return 0;
     }
 
     *new_table = *old_table;
-    new_table->bins = (st_table_entry**)
-	Calloc((unsigned)num_bins, sizeof(st_table_entry*));
+    new_table->bins = st_alloc_bins(num_bins);
 
     if (new_table->bins == 0) {
-	free(new_table);
+	st_dealloc_table(new_table);
 	return 0;
     }
 
@@ -586,7 +611,7 @@ st_copy(st_table *old_table)
 	prev = 0;
 	tail = &new_table->head;
 	do {
-	    entry = alloc(st_table_entry);
+	    entry = st_alloc_entry();
 	    if (entry == 0) {
 		st_free_table(new_table);
 		return 0;
@@ -605,21 +630,22 @@ st_copy(st_table *old_table)
     return new_table;
 }
 
-#define REMOVE_ENTRY(table, ptr) do					\
-    {									\
-	if ((ptr)->fore == 0 && (ptr)->back == 0) {			\
-	    (table)->head = 0;						\
-	    (table)->tail = 0;						\
-	}								\
-	else {								\
-	    st_table_entry *fore = (ptr)->fore, *back = (ptr)->back;	\
-	    if (fore) fore->back = back;				\
-	    if (back) back->fore = fore;				\
-	    if ((ptr) == (table)->head) (table)->head = fore;		\
-	    if ((ptr) == (table)->tail) (table)->tail = back;		\
-	}								\
-	(table)->num_entries--;						\
-    } while (0)
+static inline void
+remove_entry(st_table *table, st_table_entry *ptr)
+{
+    if (ptr->fore == 0 && ptr->back == 0) {
+	table->head = 0;
+	table->tail = 0;
+    }
+    else {
+	st_table_entry *fore = ptr->fore, *back = ptr->back;
+	if (fore) fore->back = back;
+	if (back) back->fore = fore;
+	if (ptr == table->head) table->head = fore;
+	if (ptr == table->tail) table->tail = back;
+    }
+    table->num_entries--;
+}
 
 int
 st_delete(register st_table *table, register st_data_t *key, st_data_t *value)
@@ -629,15 +655,11 @@ st_delete(register st_table *table, register st_data_t *key, st_data_t *value)
     register st_table_entry *ptr;
 
     if (table->entries_packed) {
-        st_index_t i;
-        for (i = 0; i < table->num_entries; i++) {
-            if ((st_data_t)table->bins[i*2] == *key) {
-                if (value != 0) *value = (st_data_t)table->bins[i*2+1];
-                table->num_entries--;
-                memmove(&table->bins[i*2], &table->bins[(i+1)*2],
-                        sizeof(struct st_table_entry*) * 2*(table->num_entries-i));
-                return 1;
-            }
+        st_index_t i = find_packed_index(table, *key);
+	if (i < table->num_entries) {
+	    if (value != 0) *value = PVAL(table, i);
+	    remove_packed_entry(table, i);
+	    return 1;
         }
         if (value != 0) *value = 0;
         return 0;
@@ -648,10 +670,10 @@ st_delete(register st_table *table, register st_data_t *key, st_data_t *value)
     for (prev = &table->bins[hash_val]; (ptr = *prev) != 0; prev = &ptr->next) {
 	if (EQUAL(table, *key, ptr->key)) {
 	    *prev = ptr->next;
-	    REMOVE_ENTRY(table, ptr);
+	    remove_entry(table, ptr);
 	    if (value != 0) *value = ptr->record;
 	    *key = ptr->key;
-	    free(ptr);
+	    st_free_entry(ptr);
 	    return 1;
 	}
     }
@@ -667,13 +689,11 @@ st_delete_safe(register st_table *table, register st_data_t *key, st_data_t *val
     register st_table_entry *ptr;
 
     if (table->entries_packed) {
-	st_index_t i;
-	for (i = 0; i < table->num_entries; i++) {
-	    if ((st_data_t)table->bins[i*2] == *key) {
-		if (value != 0) *value = (st_data_t)table->bins[i*2+1];
-		table->bins[i*2] = (void *)never;
-		return 1;
-	    }
+        st_index_t i = find_packed_index(table, *key);
+	if (i < table->num_entries) {
+	    if (value != 0) *value = PVAL(table, i);
+	    PKEY_SET(table, i, never);
+	    return 1;
 	}
 	if (value != 0) *value = 0;
 	return 0;
@@ -684,7 +704,7 @@ st_delete_safe(register st_table *table, register st_data_t *key, st_data_t *val
 
     for (; ptr != 0; ptr = ptr->next) {
 	if ((ptr->key != never) && EQUAL(table, ptr->key, *key)) {
-	    REMOVE_ENTRY(table, ptr);
+	    remove_entry(table, ptr);
 	    *key = ptr->key;
 	    if (value != 0) *value = ptr->record;
 	    ptr->key = ptr->record = never;
@@ -704,13 +724,13 @@ st_cleanup_safe(st_table *table, st_data_t never)
 
     if (table->entries_packed) {
 	st_index_t i = 0, j = 0;
-	while ((st_data_t)table->bins[i*2] != never) {
+	while (PKEY(table, i) != never) {
 	    if (i++ == table->num_entries) return;
 	}
 	for (j = i; ++i < table->num_entries;) {
-	    if ((st_data_t)table->bins[i*2] == never) continue;
-	    table->bins[j*2] = table->bins[i*2];
-	    table->bins[j*2+1] = table->bins[i*2+1];
+	    if (PKEY(table, i) == never) continue;
+	    PKEY_SET(table, j,  PKEY(table, i));
+	    PVAL_SET(table, j,  PVAL(table, i));
 	    j++;
 	}
 	table->num_entries = j;
@@ -723,7 +743,7 @@ st_cleanup_safe(st_table *table, st_data_t never)
 	    if (ptr->key == never) {
 		tmp = ptr;
 		*last = ptr = ptr->next;
-		free(tmp);
+		st_free_entry(tmp);
 	    }
 	    else {
 		ptr = *(last = &ptr->next);
@@ -740,27 +760,24 @@ st_update(st_table *table, st_data_t key, int (*func)(st_data_t key, st_data_t *
     st_data_t value;
 
     if (table->entries_packed) {
-	st_index_t i;
-	for (i = 0; i < table->num_entries; i++) {
-	    if ((st_data_t)table->bins[i*2] == key) {
-		value = (st_data_t)table->bins[i*2+1];
-		switch ((*func)(key, &value, arg)) {
-		  case ST_CONTINUE:
-		    table->bins[i*2+1] = (struct st_table_entry*)value;
-		    break;
-		  case ST_DELETE:
-		    table->num_entries--;
-		    memmove(&table->bins[i*2], &table->bins[(i+1)*2],
-			    sizeof(struct st_table_entry*) * 2 * (table->num_entries-i));
-		}
-		return 1;
+	st_index_t i = find_packed_index(table, key);
+	if (i < table->num_entries) {
+	    value = PVAL(table, i);
+	    switch ((*func)(key, &value, arg)) {
+	      case ST_CONTINUE:
+		PVAL_SET(table, i, value);
+		break;
+	      case ST_DELETE:
+		remove_packed_entry(table, i);
 	    }
+	    return 1;
 	}
 	return 0;
     }
 
     hash_val = do_hash(key, table);
-    FIND_ENTRY(table, ptr, hash_val, bin_pos);
+    bin_pos = hash_val % table->num_bins;
+    ptr = find_entry(table, key, hash_val, bin_pos);
 
     if (ptr == 0) {
 	return 0;
@@ -777,8 +794,8 @@ st_update(st_table *table, st_data_t key, int (*func)(st_data_t key, st_data_t *
 		if (ptr == tmp) {
 		    tmp = ptr->fore;
 		    *last = ptr->next;
-		    REMOVE_ENTRY(table, ptr);
-		    free(ptr);
+		    remove_entry(table, ptr);
+		    st_free_entry(ptr);
 		    break;
 		}
 	    }
@@ -799,14 +816,14 @@ st_foreach(st_table *table, int (*func)(ANYARGS), st_data_t arg)
         for (i = 0; i < table->num_entries; i++) {
             st_index_t j;
             st_data_t key, val;
-            key = (st_data_t)table->bins[i*2];
-            val = (st_data_t)table->bins[i*2+1];
+            key = PKEY(table, i);
+            val = PVAL(table, i);
             retval = (*func)(key, val, arg);
 	    if (!table->entries_packed) goto unpacked;
             switch (retval) {
 	      case ST_CHECK:	/* check if hash is modified during iteration */
                 for (j = 0; j < table->num_entries; j++) {
-                    if ((st_data_t)table->bins[j*2] == key)
+                    if (PKEY(table, j) == key)
                         break;
                 }
                 if (j == table->num_entries) {
@@ -820,9 +837,7 @@ st_foreach(st_table *table, int (*func)(ANYARGS), st_data_t arg)
 	      case ST_STOP:
 		return 0;
 	      case ST_DELETE:
-                table->num_entries--;
-                memmove(&table->bins[i*2], &table->bins[(i+1)*2],
-                        sizeof(struct st_table_entry*) * 2*(table->num_entries-i));
+		remove_packed_entry(table, i);
                 i--;
                 break;
             }
@@ -863,8 +878,8 @@ st_foreach(st_table *table, int (*func)(ANYARGS), st_data_t arg)
 		    if (ptr == tmp) {
 			tmp = ptr->fore;
 			*last = ptr->next;
-			REMOVE_ENTRY(table, ptr);
-			free(ptr);
+			remove_entry(table, ptr);
+			st_free_entry(ptr);
 			if (ptr == tmp) return 0;
 			ptr = tmp;
 			break;
@@ -888,13 +903,13 @@ st_reverse_foreach(st_table *table, int (*func)(ANYARGS), st_data_t arg)
         for (i = table->num_entries-1; 0 <= i; i--) {
             int j;
             st_data_t key, val;
-            key = (st_data_t)table->bins[i*2];
-            val = (st_data_t)table->bins[i*2+1];
+            key = PKEY(table, i);
+            val = PVAL(table, i);
             retval = (*func)(key, val, arg);
             switch (retval) {
 	      case ST_CHECK:	/* check if hash is modified during iteration */
                 for (j = 0; j < table->num_entries; j++) {
-                    if ((st_data_t)table->bins[j*2] == key)
+                    if (PKEY(table, j) == key)
                         break;
                 }
                 if (j == table->num_entries) {
@@ -908,9 +923,7 @@ st_reverse_foreach(st_table *table, int (*func)(ANYARGS), st_data_t arg)
 	      case ST_STOP:
 		return 0;
 	      case ST_DELETE:
-                table->num_entries--;
-                memmove(&table->bins[i*2], &table->bins[(i+1)*2],
-                        sizeof(struct st_table_entry*) * 2*(table->num_entries-i));
+		remove_packed_entry(table, i);
                 break;
             }
         }
@@ -943,8 +956,8 @@ st_reverse_foreach(st_table *table, int (*func)(ANYARGS), st_data_t arg)
 		    if (ptr == tmp) {
 			tmp = ptr->back;
 			*last = ptr->next;
-			REMOVE_ENTRY(table, ptr);
-			free(ptr);
+			remove_entry(table, ptr);
+			st_free_entry(ptr);
 			ptr = tmp;
 			break;
 		    }

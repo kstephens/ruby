@@ -6,6 +6,7 @@ require 'socket'
 require 'stringio'
 require 'timeout'
 require 'tempfile'
+require 'weakref'
 require_relative 'envutil'
 
 class TestIO < Test::Unit::TestCase
@@ -1056,7 +1057,7 @@ class TestIO < Test::Unit::TestCase
       w.close
     end, proc do |r|
       assert_equal("", r.gets(0))
-      assert_equal("foobarbaz", s = r.gets(9))
+      assert_equal("foobarbaz", r.gets(9))
     end)
   end
 
@@ -1410,12 +1411,11 @@ class TestIO < Test::Unit::TestCase
 
   def try_fdopen(fd, autoclose = true, level = 100)
     if level > 0
-      try_fdopen(fd, autoclose, level - 1)
+      f = try_fdopen(fd, autoclose, level - 1)
       GC.start
-      level
+      f
     else
-      IO.for_fd(fd, autoclose: autoclose)
-      nil
+      WeakRef.new(IO.for_fd(fd, autoclose: autoclose))
     end
   end
 
@@ -1429,7 +1429,7 @@ class TestIO < Test::Unit::TestCase
     f.autoclose = false
     assert_equal(false, f.autoclose?)
     f.close
-    assert_nothing_raised(Errno::EBADF) {t.close}
+    assert_nothing_raised(Errno::EBADF, feature2250) {t.close}
 
     t.open
     f = IO.for_fd(t.fileno, autoclose: false)
@@ -1437,15 +1437,38 @@ class TestIO < Test::Unit::TestCase
     f.autoclose = true
     assert_equal(true, f.autoclose?)
     f.close
-    assert_raise(Errno::EBADF) {t.close}
+    assert_raise(Errno::EBADF, feature2250) {t.close}
+  end
 
+  def test_autoclose_true_closed_by_finalizer
+    feature2250 = '[ruby-core:26222]'
+    pre = 'ft2250'
     t = Tempfile.new(pre)
-    try_fdopen(t.fileno)
-    assert_raise(Errno::EBADF) {t.close}
+    w = try_fdopen(t.fileno)
+    begin
+      w.close
+      begin
+        t.close
+      rescue Errno::EBADF
+      end
+      skip "expect IO object was GC'ed but not recycled yet"
+    rescue WeakRef::RefError
+      assert_raise(Errno::EBADF, feature2250) {t.close}
+    end
+  end
 
+  def test_autoclose_false_closed_by_finalizer
+    feature2250 = '[ruby-core:26222]'
+    pre = 'ft2250'
     t = Tempfile.new(pre)
-    try_fdopen(t.fileno, false)
-    assert_nothing_raised(Errno::EBADF) {t.close}
+    w = try_fdopen(t.fileno, false)
+    begin
+      w.close
+      t.close
+      skip "expect IO object was GC'ed but not recycled yet"
+    rescue WeakRef::RefError
+      assert_nothing_raised(Errno::EBADF, feature2250) {t.close}
+    end
   end
 
   def test_open_redirect
@@ -1749,7 +1772,7 @@ End
     10.times.map do
       Thread.start do
         assert_in_out_err([], src) {|stdout, stderr|
-          assert_no_match(/hi.*hi/, stderr.join)
+          assert_no_match(/hi.*hi/, stderr.join, bug3585)
         }
       end
     end.each {|th| th.join}
@@ -1809,11 +1832,11 @@ End
   end
 
   def test_advise
-    t = make_tempfile
-    assert_raise(ArgumentError, "no arguments") { t.advise }
+    tf = make_tempfile
+    assert_raise(ArgumentError, "no arguments") { tf.advise }
     %w{normal random sequential willneed dontneed noreuse}.map(&:to_sym).each do |adv|
       [[0,0], [0, 20], [400, 2]].each do |offset, len|
-        open(make_tempfile.path) do |t|
+        open(tf.path) do |t|
           assert_equal(t.advise(adv, offset, len), nil)
           assert_raise(ArgumentError, "superfluous arguments") do
             t.advise(adv, offset, len, offset)
@@ -1837,10 +1860,10 @@ End
 
   def test_invalid_advise
     feature4204 = '[ruby-dev:42887]'
-    t = make_tempfile
+    tf = make_tempfile
     %w{Normal rand glark will_need zzzzzzzzzzzz \u2609}.map(&:to_sym).each do |adv|
       [[0,0], [0, 20], [400, 2]].each do |offset, len|
-        open(make_tempfile.path) do |t|
+        open(tf.path) do |t|
           assert_raise(NotImplementedError, feature4204) { t.advise(adv, offset, len) }
         end
       end

@@ -336,7 +336,7 @@ rb_long2int_inline(long n)
 
 #define FIX2LONG(x) (long)RSHIFT((SIGNED_VALUE)(x),1)
 #define FIX2ULONG(x) ((((VALUE)(x))>>1)&LONG_MAX)
-#define FIXNUM_P(f) (((SIGNED_VALUE)(f))&FIXNUM_FLAG)
+#define FIXNUM_P(f) (((int)(SIGNED_VALUE)(f))&FIXNUM_FLAG)
 #define POSFIXABLE(f) ((f) < FIXNUM_MAX+1)
 #define NEGFIXABLE(f) ((f) >= FIXNUM_MIN)
 #define FIXABLE(f) (POSFIXABLE(f) && NEGFIXABLE(f))
@@ -934,8 +934,8 @@ struct RBignum {
 #define RCOMPLEX(obj) (R_CAST(RComplex)(obj))
 
 #define FL_SINGLETON FL_USER0
-#define FL_MARK      (((VALUE)1)<<5)
-#define FL_RESERVED  (((VALUE)1)<<6) /* will be used in the future GC */
+#define FL_RESERVED1 (((VALUE)1)<<5)
+#define FL_RESERVED2 (((VALUE)1)<<6) /* will be used in the future GC */
 #define FL_FINALIZE  (((VALUE)1)<<7)
 #define FL_TAINT     (((VALUE)1)<<8)
 #define FL_UNTRUSTED (((VALUE)1)<<9)
@@ -1186,6 +1186,7 @@ NORETURN(void rb_bug_errno(const char*, int));
 NORETURN(void rb_sys_fail(const char*));
 NORETURN(void rb_mod_sys_fail(VALUE, const char*));
 NORETURN(void rb_iter_break(void));
+NORETURN(void rb_iter_break_value(VALUE));
 NORETURN(void rb_exit(int));
 NORETURN(void rb_notimplement(void));
 VALUE rb_syserr_new(int, const char *);
