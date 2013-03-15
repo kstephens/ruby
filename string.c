@@ -7187,10 +7187,16 @@ VALUE
 rb_str_intern(VALUE s)
 {
     VALUE str = RB_GC_GUARD(s);
+#if 1
     ID id;
 
     id = rb_intern_str(str);
     return ID2SYM(id);
+#else
+    // BROKEN!
+    extern VALUE rb_intern_str_collectable(VALUE str);
+    return rb_intern_str_collectable(str);
+#endif
 }
 
 
