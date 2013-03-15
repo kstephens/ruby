@@ -2072,6 +2072,11 @@ gc_prepare_free_objects(rb_objspace_t *objspace)
 
     gc_marks(objspace);
 
+    {
+        extern void rb_gc_sweep_symbols(void);
+        rb_gc_sweep_symbols();
+    }
+
     before_gc_sweep(objspace);
     if (objspace->heap.free_min > (heaps_used * HEAP_OBJ_LIMIT - objspace_live_num(objspace))) {
 	set_heaps_increment(objspace);

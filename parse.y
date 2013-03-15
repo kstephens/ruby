@@ -31,6 +31,27 @@
 #include <ctype.h>
 #include "probes.h"
 
+typedef struct symbol_entry {
+    ID id;
+    VALUE str;
+    VALUE sym;
+    unsigned int pinned : 30;
+    unsigned int mark   : 1;
+    unsigned int unused : 1;
+} symbol_entry;
+
+static symbol_entry*
+symbol_entry_new()
+{
+  return malloc(sizeof(symbol_entry));
+}
+static void
+symbol_entry_free(symbol_entry *e)
+{
+  free(e);
+}
+
+
 #define numberof(array) (int)(sizeof(array) / sizeof((array)[0]))
 
 #define YYMALLOC(size)		rb_parser_malloc(parser, (size))
@@ -43,9 +64,9 @@
 #define free	YYFREE
 
 #ifndef RIPPER
-static ID register_symid(ID, const char *, long, rb_encoding *);
-static ID register_symid_str(ID, VALUE);
-#define REGISTER_SYMID(id, name) register_symid((id), (name), strlen(name), enc)
+static ID register_symid(ID, const char *, long, rb_encoding *, int);
+static ID register_symid_str(ID, VALUE, int);
+#define REGISTER_SYMID(id, name) register_symid((id), (name), strlen(name), enc, 1)
 #include "id.c"
 #endif
 
@@ -9907,8 +9928,12 @@ static const struct {
 
 static struct symbols {
     ID last_id;
+    st_table *str_e;
+    st_table *id_e;
+    /*
     st_table *sym_id;
     st_table *id_str;
+    */
 #if ENABLE_SELECTOR_NAMESPACE
     st_table *ivar2_id;
     st_table *id_ivar2;
@@ -9916,7 +9941,7 @@ static struct symbols {
     VALUE op_sym[tLAST_OP_ID];
 } global_symbols = {tLAST_TOKEN};
 
-static const struct st_hash_type symhash = {
+static const struct st_hash_type strhash = {
     rb_str_hash_cmp,
     rb_str_hash,
 };
@@ -9951,8 +9976,8 @@ static const struct st_hash_type ivar2_hash_type = {
 void
 Init_sym(void)
 {
-    global_symbols.sym_id = st_init_table_with_size(&symhash, 1000);
-    global_symbols.id_str = st_init_numtable_with_size(1000);
+    global_symbols.str_e = st_init_table_with_size(&strhash, 1000);
+    global_symbols.id_e  = st_init_numtable_with_size(1000);
 #if ENABLE_SELECTOR_NAMESPACE
     global_symbols.ivar2_id = st_init_table_with_size(&ivar2_hash_type, 1000);
     global_symbols.id_ivar2 = st_init_numtable_with_size(1000);
@@ -9967,12 +9992,113 @@ Init_sym(void)
     Init_id();
 }
 
+static symbol_entry*
+id2symbol_entry(ID id)
+{
+    st_data_t data;
+    if (st_lookup(global_symbols.id_e, id, &data))
+        return (symbol_entry*) data;
+    return (symbol_entry*) 0;
+}
+
+static symbol_entry*
+str2symbol_entry(VALUE str)
+{
+    st_data_t data;
+    if (st_lookup(global_symbols.str_e, str, &data))
+        return (symbol_entry*) data;
+    return (symbol_entry*) 0;
+}
+
+static void
+symbol_entry_reclaim(symbol_entry *e)
+{
+    st_data_t key, value;
+
+    key = (st_data_t) e->id;
+    st_delete(global_symbols.id_e, &key, &value);
+    key = (st_data_t) e->str;
+    st_delete(global_symbols.str_e, &key, &value);
+    symbol_entry_free(e);
+}
+
+void
+rb_gc_mark_id(ID id)
+{
+    symbol_entry *e = id2symbol_entry(id);
+    e->mark = 1;
+    rb_gc_mark(e->str);
+}
+
+void
+rb_gc_unpin_id(ID id)
+{
+    symbol_entry *e = id2symbol_entry(id);
+    if ( ! e->pinned -- )
+        e->pinned = 0;
+}
+
+void
+rb_gc_pin_id(ID id)
+{
+    symbol_entry *e = id2symbol_entry(id);
+    if ( ! ++ e->pinned )
+        rb_bug("rb_gc_pin_id(): overflow");
+}
+
+static ID intern_str(VALUE str, int pinned);
+
+VALUE
+rb_intern_str_collectable(VALUE str)
+{
+    symbol_entry *e;
+
+    if ( e = str2symbol_entry(str) ) {
+        return e->id;
+    }
+
+    ID id = intern_str(rb_str_dup(str), 0);
+    return ID2SYM(id);
+}
+
+static int
+symbol_entry_mark(VALUE str, symbol_entry *e, VALUE ary)
+{
+    e->mark = 1;
+    rb_gc_mark(e->str);
+    return ST_CONTINUE;
+}
+
 void
 rb_gc_mark_symbols(void)
 {
-    rb_mark_tbl(global_symbols.id_str);
+    st_foreach(global_symbols.str_e, symbol_entry_mark, (VALUE) 0);
     rb_gc_mark_locations(global_symbols.op_sym,
 			 global_symbols.op_sym + numberof(global_symbols.op_sym));
+}
+
+static int
+symbol_entry_sweep(VALUE str, symbol_entry *e, unsigned int *stats)
+{
+    if ( e->mark )   ++ stats[0];
+    if ( e->pinned ) ++ stats[1];
+    if ( ! (e->mark || e->pinned) ) {
+        ++ stats[2];
+        // symbol_entry_reclaim(e);
+    } else {
+        ++ stats[3];
+        e->mark = 0;
+    }
+    return ST_CONTINUE;
+}
+
+void
+rb_gc_sweep_symbols(void)
+{
+    unsigned int stats[4] = { 0 };
+    st_foreach(global_symbols.str_e, symbol_entry_sweep, (st_data_t) stats);
+    fprintf(stderr, "  gc_sweep_symbols: mark %u pinned %u sweeped %u retained %u\n",
+            stats[0], stats[1], stats[2], stats[3]);
 }
 #endif /* !RIPPER */
 
@@ -10140,23 +10266,30 @@ rb_str_symname_type(VALUE name)
 }
 
 static ID
-register_symid(ID id, const char *name, long len, rb_encoding *enc)
+register_symid(ID id, const char *name, long len, rb_encoding *enc, int pinned)
 {
     VALUE str = rb_enc_str_new(name, len, enc);
-    return register_symid_str(id, str);
+    return register_symid_str(id, str, pinned);
 }
 
 static ID
-register_symid_str(ID id, VALUE str)
+register_symid_str(ID id, VALUE str, int pinned)
 {
+    symbol_entry *e;
     OBJ_FREEZE(str);
 
     if (RUBY_DTRACE_SYMBOL_CREATE_ENABLED()) {
 	RUBY_DTRACE_SYMBOL_CREATE(RSTRING_PTR(str), rb_sourcefile(), rb_sourceline());
     }
 
-    st_add_direct(global_symbols.sym_id, (st_data_t)str, id);
-    st_add_direct(global_symbols.id_str, id, (st_data_t)str);
+    e = symbol_entry_new();
+    e->id = id;
+    e->str = str;
+    e->sym = ID2SYM(id);
+    e->pinned = pinned;
+    e->mark = e->unused = 0;
+    st_add_direct(global_symbols.str_e, (st_data_t)str, (st_data_t)e);
+    st_add_direct(global_symbols.id_e,  (st_data_t)id, (st_data_t)e);
     return id;
 }
 
@@ -10178,13 +10311,12 @@ sym_check_asciionly(VALUE str)
  * can be modified before the registration, since the encoding will be
  * set to ASCII-8BIT if it is a special global name.
  */
-static ID intern_str(VALUE str);
 
 ID
 rb_intern3(const char *name, long len, rb_encoding *enc)
 {
     VALUE str;
-    st_data_t data;
+    symbol_entry *e;
     struct RString fake_str;
     fake_str.basic.flags = T_STRING|RSTRING_NOEMBED;
     fake_str.basic.klass = rb_cString;
@@ -10195,15 +10327,15 @@ rb_intern3(const char *name, long len, rb_encoding *enc)
     rb_enc_associate(str, enc);
     OBJ_FREEZE(str);
 
-    if (st_lookup(global_symbols.sym_id, str, &data))
-	return (ID)data;
+    if ( e = str2symbol_entry(str) )
+        return e->id;
 
     str = rb_enc_str_new(name, len, enc); /* make true string */
-    return intern_str(str);
+    return intern_str(str, 1);
 }
 
 static ID
-intern_str(VALUE str)
+intern_str(VALUE str, int pinned)
 {
     const char *name, *m, *e;
     long len, last;
@@ -10305,7 +10437,7 @@ intern_str(VALUE str)
     }
     id |= ++global_symbols.last_id << ID_SCOPE_SHIFT;
   id_register:
-    return register_symid_str(id, str);
+    return register_symid_str(id, str, pinned);
 }
 
 ID
@@ -10324,17 +10456,19 @@ rb_intern(const char *name)
 ID
 rb_intern_str(VALUE str)
 {
-    st_data_t id;
+    symbol_entry *e;
 
-    if (st_lookup(global_symbols.sym_id, str, &id))
-	return (ID)id;
-    return intern_str(rb_str_dup(str));
+    if ( e = str2symbol_entry(str) ) {
+        if ( ! e->pinned ) e->pinned = 1;
+        return e->id;
+    }
+    return intern_str(rb_str_dup(str), 1);
 }
 
 VALUE
 rb_id2str(ID id)
 {
-    st_data_t data;
+    symbol_entry *e;
 
     if (id < tLAST_TOKEN) {
 	int i = 0;
@@ -10364,8 +10498,8 @@ rb_id2str(ID id)
 	}
     }
 
-    if (st_lookup(global_symbols.id_str, id, &data)) {
-        VALUE str = (VALUE)data;
+    if ( e = id2symbol_entry(id) ) {
+        VALUE str = e->str;
         if (RBASIC(str)->klass == 0)
             RBASIC(str)->klass = rb_cString;
 	return str;
@@ -10382,8 +10516,8 @@ rb_id2str(ID id)
 	str = rb_str_dup(str);
 	rb_str_cat(str, "=", 1);
 	rb_intern_str(str);
-	if (st_lookup(global_symbols.id_str, id, &data)) {
-            VALUE str = (VALUE)data;
+	if ( e = id2symbol_entry(id) ) {
+            VALUE str = e->str;
             if (RBASIC(str)->klass == 0)
                 RBASIC(str)->klass = rb_cString;
             return str;
@@ -10402,9 +10536,9 @@ rb_id2name(ID id)
 }
 
 static int
-symbols_i(VALUE sym, ID value, VALUE ary)
+symbols_i(VALUE str, symbol_entry *e, VALUE ary)
 {
-    rb_ary_push(ary, ID2SYM(value));
+    rb_ary_push(ary, ID2SYM(e->id));
     return ST_CONTINUE;
 }
 
@@ -10427,9 +10561,9 @@ symbols_i(VALUE sym, ID value, VALUE ary)
 VALUE
 rb_sym_all_symbols(void)
 {
-    VALUE ary = rb_ary_new2(global_symbols.sym_id->num_entries);
+    VALUE ary = rb_ary_new2(global_symbols.str_e->num_entries);
 
-    st_foreach(global_symbols.sym_id, symbols_i, ary);
+    st_foreach(global_symbols.str_e, symbols_i, ary);
     return ary;
 }
 
@@ -10489,7 +10623,7 @@ rb_is_junk_id(ID id)
 ID
 rb_check_id(volatile VALUE *namep)
 {
-    st_data_t id;
+    symbol_entry *e;
     VALUE tmp;
     VALUE name = *namep;
 
@@ -10509,8 +10643,8 @@ rb_check_id(volatile VALUE *namep)
 
     sym_check_asciionly(name);
 
-    if (st_lookup(global_symbols.sym_id, (st_data_t)name, &id))
-	return (ID)id;
+    if ( e = str2symbol_entry(name) )
+        return e->id;
 
     if (rb_is_attrset_name(name)) {
 	struct RString fake_str;
@@ -10524,7 +10658,8 @@ rb_check_id(volatile VALUE *namep)
 	rb_enc_copy(localname, name);
 	OBJ_FREEZE(localname);
 
-	if (st_lookup(global_symbols.sym_id, (st_data_t)localname, &id)) {
+	if ( e = str2symbol_entry(localname) ) {
+            ID id = e->id;
 	    return rb_id_attrset((ID)id);
 	}
 	RB_GC_GUARD(name);
@@ -10536,7 +10671,7 @@ rb_check_id(volatile VALUE *namep)
 ID
 rb_check_id_cstr(const char *ptr, long len, rb_encoding *enc)
 {
-    st_data_t id;
+    symbol_entry *e;
     struct RString fake_str;
     const VALUE name = (VALUE)&fake_str;
     fake_str.basic.flags = T_STRING|RSTRING_NOEMBED;
@@ -10548,12 +10683,13 @@ rb_check_id_cstr(const char *ptr, long len, rb_encoding *enc)
 
     sym_check_asciionly(name);
 
-    if (st_lookup(global_symbols.sym_id, (st_data_t)name, &id))
-	return (ID)id;
+    if ( e = str2symbol_entry(name) )
+        return e->id;
 
     if (rb_is_attrset_name(name)) {
 	fake_str.as.heap.len = len - 1;
-	if (st_lookup(global_symbols.sym_id, (st_data_t)name, &id)) {
+	if ( e = str2symbol_entry(name) ) {
+            ID id = e->id;
 	    return rb_id_attrset((ID)id);
 	}
     }
