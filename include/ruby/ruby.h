@@ -80,19 +80,16 @@ void *alloca();
 
 #if defined HAVE_UINTPTR_T && 0
 typedef uintptr_t VALUE;
-typedef uintptr_t ID;
 # define SIGNED_VALUE intptr_t
 # define SIZEOF_VALUE SIZEOF_UINTPTR_T
 # undef PRI_VALUE_PREFIX
 #elif SIZEOF_LONG == SIZEOF_VOIDP
 typedef unsigned long VALUE;
-typedef unsigned long ID;
 # define SIGNED_VALUE long
 # define SIZEOF_VALUE SIZEOF_LONG
 # define PRI_VALUE_PREFIX "l"
 #elif SIZEOF_LONG_LONG == SIZEOF_VOIDP
 typedef unsigned LONG_LONG VALUE;
-typedef unsigned LONG_LONG ID;
 # define SIGNED_VALUE LONG_LONG
 # define LONG_LONG_VALUE 1
 # define SIZEOF_VALUE SIZEOF_LONG_LONG
@@ -100,6 +97,7 @@ typedef unsigned LONG_LONG ID;
 #else
 # error ---->> ruby requires sizeof(void*) == sizeof(long) or sizeof(LONG_LONG) to be compiled. <<----
 #endif
+typedef VALUE ID;
 
 typedef char ruby_check_sizeof_int[SIZEOF_INT == sizeof(int) ? 1 : -1];
 typedef char ruby_check_sizeof_long[SIZEOF_LONG == sizeof(long) ? 1 : -1];
