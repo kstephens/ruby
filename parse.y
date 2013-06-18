@@ -568,7 +568,7 @@ static VALUE ripper_dispatch7(struct parser_params*,ID,VALUE,VALUE,VALUE,VALUE,V
 static VALUE ripper_id2sym(ID);
 #ifdef __GNUC__
 #define ripper_id2sym(id) ((id) < 256 && rb_ispunct(id) ? \
-			   ID2SYM(id) : ripper_id2sym(id))
+			   CHAR2ID(id) : ripper_id2sym(id))
 #endif
 
 #define arg_new() dispatch0(args_new)
@@ -8417,6 +8417,9 @@ new_evstr_gen(struct parser_params *parser, NODE *node)
 static NODE *
 call_bin_op_gen(struct parser_params *parser, NODE *recv, ID id, NODE *arg1)
 {
+    if ( id < tLAST_TOKEN )
+        id = CHAR2ID(id);
+    else abort();
     value_expr(recv);
     value_expr(arg1);
     return NEW_CALL(recv, id, NEW_LIST(arg1));
@@ -8425,6 +8428,9 @@ call_bin_op_gen(struct parser_params *parser, NODE *recv, ID id, NODE *arg1)
 static NODE *
 call_uni_op_gen(struct parser_params *parser, NODE *recv, ID id)
 {
+    if ( id < tLAST_TOKEN )
+        id = CHAR2ID(id);
+    else abort();
     value_expr(recv);
     return NEW_CALL(recv, id, 0);
 }
@@ -8887,7 +8893,7 @@ void_expr_gen(struct parser_params *parser, NODE *node)
 	  case tLEQ:
 	  case tEQ:
 	  case tNEQ:
-	    useless = rb_id2name(node->nd_mid);
+	    useless = rb_id2name(CHAR2ID(node->nd_mid));
 	    break;
 	}
 	break;
