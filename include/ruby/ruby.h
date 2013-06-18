@@ -909,6 +909,13 @@ struct RString {
      ((ptrvar) = RSTRING(str)->as.ary, (lenvar) = RSTRING_EMBED_LEN(str)) : \
      ((ptrvar) = RSTRING(str)->as.heap.ptr, (lenvar) = RSTRING(str)->as.heap.len))
 
+struct RSymbol {
+    struct RBasic basic;
+    VALUE name;
+    unsigned int sym_flags : 4; /* ID_SCOPE */
+    unsigned int pinned : 1;
+};
+
 #define RARRAY_EMBED_LEN_MAX 3
 struct RArray {
     struct RBasic basic;
@@ -1157,6 +1164,7 @@ struct RBignum {
 #define RMODULE(obj) RCLASS(obj)
 #define RFLOAT(obj)  (R_CAST(RFloat)(obj))
 #define RSTRING(obj) (R_CAST(RString)(obj))
+#define RSYMBOL(obj) (R_CAST(RSymbol)(obj))
 #define RREGEXP(obj) (R_CAST(RRegexp)(obj))
 #define RARRAY(obj)  (R_CAST(RArray)(obj))
 #define RHASH(obj)   (R_CAST(RHash)(obj))
