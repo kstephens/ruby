@@ -9970,6 +9970,7 @@ static struct symbols {
     st_table *sym_id;
     st_table *id_str;
     st_table *str_sym;
+    VALUE char_to_sym[0x100];
 #if ENABLE_SELECTOR_NAMESPACE
     st_table *ivar2_id;
     st_table *id_ivar2;
@@ -10383,6 +10384,31 @@ ID
 rb_intern(const char *name)
 {
     return rb_intern2(name, strlen(name));
+}
+
+VALUE
+rb_intern_char(int c)
+{
+    VALUE *symp;
+    if ( c < 0 || c > 255 ) kill(getpid(), SIGSEGV);
+    if ( ! *(symp = &global_symbols.char_to_sym[((unsigned int) c) & 0xff]) ) {
+        int i;
+        char buf[2] = { c, 0 };
+        const char *name = buf;
+	for (i = 0; i < op_tbl_count; i++) {
+            if (op_tbl[i].token == c ) {
+                 name = op_tbl[i].name;
+		 goto id_register;
+	    }
+	}
+  id_register:
+        *symp = rb_intern(name);
+#if 0
+        fprintf(stderr, "  rb_intern_char('%c' /* 0x%x */ )", c, (unsigned int) c);
+        fprintf(stderr, "    => %p \"%s\"\n", (void*) *symp, rb_id2name(*symp));
+#endif
+    }
+    return *symp;
 }
 
 ID
