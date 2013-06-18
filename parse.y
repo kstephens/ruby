@@ -8690,9 +8690,7 @@ block_dup_check_gen(struct parser_params *parser, NODE *node1, NODE *node2)
 ID
 rb_id_attrset(ID id)
 {
-    id &= ~ID_SCOPE_MASK;
-    id |= ID_ATTRSET;
-    return id;
+    return ID2ATTRSET(id);
 }
 
 static NODE *
