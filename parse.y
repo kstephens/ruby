@@ -9966,6 +9966,7 @@ static struct symbols {
     ID last_id;
     st_table *sym_id;
     st_table *id_str;
+    st_table *str_sym;
 #if ENABLE_SELECTOR_NAMESPACE
     st_table *ivar2_id;
     st_table *id_ivar2;
@@ -10010,6 +10011,7 @@ Init_sym(void)
 {
     global_symbols.sym_id = st_init_table_with_size(&symhash, 1000);
     global_symbols.id_str = st_init_numtable_with_size(1000);
+    global_symbols.str_sym = st_init_table_with_size(&symhash, 1000);
 #if ENABLE_SELECTOR_NAMESPACE
     global_symbols.ivar2_id = st_init_table_with_size(&ivar2_hash_type, 1000);
     global_symbols.id_ivar2 = st_init_numtable_with_size(1000);
@@ -10028,6 +10030,7 @@ void
 rb_gc_mark_symbols(void)
 {
     rb_mark_tbl(global_symbols.id_str);
+    rb_mark_tbl(global_symbols.str_sym);
     rb_gc_mark_locations(global_symbols.op_sym,
 			 global_symbols.op_sym + numberof(global_symbols.op_sym));
 }
@@ -10209,6 +10212,7 @@ register_symid_str(ID id, VALUE str)
 
     st_add_direct(global_symbols.sym_id, (st_data_t)str, id);
     st_add_direct(global_symbols.id_str, id, (st_data_t)str);
+    st_add_direct(global_symbols.str_sym, str, ID2SYM(id));
     return id;
 }
 
