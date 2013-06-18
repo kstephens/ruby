@@ -354,14 +354,14 @@ rb_long2int_inline(long n)
 #define SYMBOL_P(x) (abort(), 0)
 #define ID2SYM(x) (x)
 #define SYM2ID(x) (x)
-extern VALUE _rb_char_to_id_table[0x100];
-#define CHAR2ID(x) _rb_char_to_id_table[(unsigned char) (x)]
 #else
 #define SYMBOL_P(x) (((VALUE)(x)&~((~(VALUE)0)<<RUBY_SPECIAL_SHIFT))==SYMBOL_FLAG)
 #define ID2SYM(x) (((VALUE)(x)<<RUBY_SPECIAL_SHIFT)|SYMBOL_FLAG)
 #define SYM2ID(x) RSHIFT((unsigned long)(x),RUBY_SPECIAL_SHIFT)
-#define CHAR2ID(x) ((ID) (x))
 #endif
+
+extern VALUE rb_intern_char(int c);
+#define CHAR2ID(x) rb_intern_char(x)
 
 #ifndef USE_FLONUM
 #if SIZEOF_VALUE >= SIZEOF_DOUBLE
