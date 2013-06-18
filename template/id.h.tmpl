@@ -30,6 +30,8 @@ types = ids.keys.grep(/^[A-Z]/)
 
 #define ID_SCOPE_SHIFT 3
 #define ID_SCOPE_MASK 0x07
+#define ID_SCOPE(id) ((id) & ID_SCOPE_MASK)
+#define ID_SCOPE_SET(id,attr) (((id) & ~ID_SCOPE_MASK) | (attr))
 #define ID_LOCAL      0x00
 #define ID_INSTANCE   0x01
 #define ID_GLOBAL     0x03
