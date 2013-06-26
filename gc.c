@@ -209,6 +209,7 @@ typedef struct RVALUE {
 	struct RClass  klass;
 	struct RFloat  flonum;
 	struct RString string;
+	struct RSymbol symbol;
 	struct RArray  array;
 	struct RRegexp regexp;
 	struct RHash   hash;
@@ -1206,6 +1207,9 @@ obj_free(rb_objspace_t *objspace, VALUE obj)
 	break;
       case T_STRING:
 	rb_str_free(obj);
+	break;
+      case T_SYMBOL:
+	/* rb_sym_free(obj); REMOVE global_symbols.str_sym, .id_str, etc. entries. */
 	break;
       case T_ARRAY:
 	rb_ary_free(obj);
@@ -3303,6 +3307,11 @@ gc_mark_children(rb_objspace_t *objspace, VALUE ptr)
 	    goto again;
 	}
 	break;
+
+      case T_SYMBOL:
+        ptr = obj->as.symbol.name;
+        // fprintf(stderr, "  gc: mark: T_SYMBOL %p %s\n", (void*) obj, RSTRING_PTR(ptr));
+        goto again;
 
       case T_DATA:
 	if (RTYPEDDATA_P(obj)) {
