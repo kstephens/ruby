@@ -10010,6 +10010,24 @@ static const struct st_hash_type ivar2_hash_type = {
 };
 #endif
 
+VALUE
+rb_symbol_new_in_heap(VALUE name)
+{
+    NEWOBJ_OF(sym, struct RSymbol, rb_cSymbol, T_SYMBOL);
+    sym->name = name;
+    sym->pinned = 1;
+    OBJ_FREEZE(sym->name);
+    {
+      static int once = 0;
+      if ( ! once ) {
+        ++ once;
+        fprintf(stderr, "\n  =#=#=#=#= pid %d =#=#=#=#=\n", (int) getpid());
+      }
+    }
+    fprintf(stderr, "  rb_symboL_new_in_heap(\"%s\") => %p\n", RSTRING_PTR(sym->name), (void*) sym);
+    return (VALUE)sym;
+}
+
 void
 Init_sym(void)
 {
@@ -10037,6 +10055,8 @@ rb_gc_mark_symbols(void)
     rb_mark_tbl(global_symbols.str_sym);
     rb_gc_mark_locations(global_symbols.op_sym,
 			 global_symbols.op_sym + numberof(global_symbols.op_sym));
+    rb_gc_mark_locations(global_symbols.char_to_sym,
+                         global_symbols.char_to_sym + numberof(global_symbols.char_to_sym));
 }
 #endif /* !RIPPER */
 
@@ -10208,6 +10228,7 @@ register_symid(ID id, const char *name, long len, rb_encoding *enc)
 static ID
 register_symid_str(ID id, VALUE str)
 {
+    VALUE sym;
     OBJ_FREEZE(str);
 
     if (RUBY_DTRACE_SYMBOL_CREATE_ENABLED()) {
@@ -10216,7 +10237,8 @@ register_symid_str(ID id, VALUE str)
 
     st_add_direct(global_symbols.sym_id, (st_data_t)str, id);
     st_add_direct(global_symbols.id_str, id, (st_data_t)str);
-    st_add_direct(global_symbols.str_sym, str, ID2SYM(id));
+    sym = rb_symbol_new_in_heap(str);
+    st_add_direct(global_symbols.str_sym, str, sym);
     return id;
 }
 
