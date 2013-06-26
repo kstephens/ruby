@@ -345,10 +345,12 @@ rb_long2int_inline(long n)
 
 #define ID_IS_VALUE 0
 #if ID_IS_VALUE
-#define SYMBOL_P(x) (abort(), 0)
+#define rb_SYMBOL_IMMEDIATE 0
+#define SYMBOL_P(x) (RB_TYPE_P((x), T_SYMBOL) && CLASS_OF(x) == rb_cSymbol)
 #define ID2SYM(x) (x)
 #define SYM2ID(x) (x)
 #else
+#define rb_SYMBOL_IMMEDIATE 1
 #define SYMBOL_P(x) (((VALUE)(x)&~((~(VALUE)0)<<RUBY_SPECIAL_SHIFT))==SYMBOL_FLAG)
 #define ID2SYM(x) (((VALUE)(x)<<RUBY_SPECIAL_SHIFT)|SYMBOL_FLAG)
 #define SYM2ID(x) RSHIFT((unsigned long)(x),RUBY_SPECIAL_SHIFT)
@@ -1663,7 +1665,7 @@ rb_class_of(VALUE obj)
 	if (FIXNUM_P(obj)) return rb_cFixnum;
 	if (FLONUM_P(obj)) return rb_cFloat;
 	if (obj == Qtrue)  return rb_cTrueClass;
-	if (SYMBOL_P(obj)) return rb_cSymbol;
+	if (rb_SYMBOL_IMMEDIATE && SYMBOL_P(obj)) return rb_cSymbol;
     }
     else if (!RTEST(obj)) {
 	if (obj == Qnil)   return rb_cNilClass;
@@ -1679,7 +1681,7 @@ rb_type(VALUE obj)
 	if (FIXNUM_P(obj)) return T_FIXNUM;
         if (FLONUM_P(obj)) return T_FLOAT;
         if (obj == Qtrue)  return T_TRUE;
-	if (SYMBOL_P(obj)) return T_SYMBOL;
+	if (rb_SYMBOL_IMMEDIATE && SYMBOL_P(obj)) return T_SYMBOL;
 	if (obj == Qundef) return T_UNDEF;
     }
     else if (!RTEST(obj)) {
