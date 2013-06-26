@@ -10015,13 +10015,13 @@ rb_symbol_new_in_heap(VALUE name, ID id)
 {
     NEWOBJ_OF(sym, struct RSymbol, rb_cSymbol, T_SYMBOL);
     sym->name = name;
-    sym->sym_flags = ID_SCOPE(id);
+    sym->sym_flags = is_notop_id(id) ? ID_SCOPE(id) : 0;
     sym->pinned = 1;
     OBJ_FREEZE(sym->name);
     if ( 1 ) {
       char flags_str[128] = { 0 };
       static int once = 0;
- #define ID_SCOPE_X(X) if ( ID_SCOPE(id) == X ) { strcat(flags_str, #X " "); }
+ #define ID_SCOPE_X(X) if ( ID_SCOPE(sym->sym_flags) == X ) { strcat(flags_str, #X " "); }
       ID_SCOPE_X(ID_LOCAL);
       ID_SCOPE_X(ID_INSTANCE);
       ID_SCOPE_X(ID_GLOBAL);
