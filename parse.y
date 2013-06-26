@@ -10011,20 +10011,32 @@ static const struct st_hash_type ivar2_hash_type = {
 #endif
 
 VALUE
-rb_symbol_new_in_heap(VALUE name)
+rb_symbol_new_in_heap(VALUE name, ID id)
 {
     NEWOBJ_OF(sym, struct RSymbol, rb_cSymbol, T_SYMBOL);
     sym->name = name;
+    sym->sym_flags = ID_SCOPE(id);
     sym->pinned = 1;
     OBJ_FREEZE(sym->name);
-    {
+    if ( 1 ) {
+      char flags_str[128] = { 0 };
       static int once = 0;
+ #define ID_SCOPE_X(X) if ( ID_SCOPE(id) == X ) { strcat(flags_str, #X " "); }
+      ID_SCOPE_X(ID_LOCAL);
+      ID_SCOPE_X(ID_INSTANCE);
+      ID_SCOPE_X(ID_GLOBAL);
+      ID_SCOPE_X(ID_ATTRSET);
+      ID_SCOPE_X(ID_CONST);
+      ID_SCOPE_X(ID_CLASS);
+      ID_SCOPE_X(ID_JUNK);
+      ID_SCOPE_X(ID_INTERNAL);
+#undef ID_SCOPE_X
       if ( ! once ) {
         ++ once;
         fprintf(stderr, "\n  =#=#=#=#= pid %d =#=#=#=#=\n", (int) getpid());
       }
+      fprintf(stderr, "  rb_symboL_new_in_heap(\"%s\", %p) => %p (0x%x %s) \n", RSTRING_PTR(sym->name), (void*) id, (void*) sym, sym->sym_flags, flags_str);
     }
-    fprintf(stderr, "  rb_symboL_new_in_heap(\"%s\") => %p\n", RSTRING_PTR(sym->name), (void*) sym);
     return (VALUE)sym;
 }
 
@@ -10237,7 +10249,7 @@ register_symid_str(ID id, VALUE str)
 
     st_add_direct(global_symbols.sym_id, (st_data_t)str, id);
     st_add_direct(global_symbols.id_str, id, (st_data_t)str);
-    sym = rb_symbol_new_in_heap(str);
+    sym = rb_symbol_new_in_heap(str, id);
     st_add_direct(global_symbols.str_sym, str, sym);
     return id;
 }
