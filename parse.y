@@ -47,7 +47,11 @@ static ID register_symid_str(ID, VALUE);
 #include "id.c"
 #endif
 
+#if rb_ID_IS_VALUE
+#define is_notop_id(id) 1
+#else
 #define is_notop_id(id) ((id)>tLAST_OP_ID)
+#endif
 #define is_local_id(id) (is_notop_id(id)&&(ID_SCOPE(id))==ID_LOCAL)
 #define is_global_id(id) (is_notop_id(id)&&(ID_SCOPE(id))==ID_GLOBAL)
 #define is_instance_id(id) (is_notop_id(id)&&(ID_SCOPE(id))==ID_INSTANCE)
