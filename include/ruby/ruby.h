@@ -349,8 +349,8 @@ rb_long2int_inline(long n)
 
 #define IMMEDIATE_P(x) ((VALUE)(x) & IMMEDIATE_MASK)
 
-#define ID_IS_VALUE 0
-#if ID_IS_VALUE
+#define rb_ID_IS_VALUE 0
+#if rb_ID_IS_VALUE
 #define rb_SYMBOL_IMMEDIATE 0
 #define SYMBOL_P(x) (RB_TYPE_P((x), T_SYMBOL) && CLASS_OF(x) == rb_cSymbol)
 #define ID2SYM(x) (x)
