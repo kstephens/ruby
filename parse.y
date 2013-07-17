@@ -8700,7 +8700,11 @@ block_dup_check_gen(struct parser_params *parser, NODE *node1, NODE *node2)
 ID
 rb_id_attrset(ID id)
 {
+#if rb_ID_IS_VALUE
+    return id;
+#else
     return ID2ATTRSET(id);
+#endif
 }
 
 static NODE *
@@ -9971,8 +9975,10 @@ static const struct {
 
 static struct symbols {
     ID last_id;
+#if ! rb_ID_IS_VALUE
     st_table *sym_id;
     st_table *id_str;
+#endif
     st_table *str_sym;
     VALUE char_to_sym[0x100];
 #if ENABLE_SELECTOR_NAMESPACE
@@ -10019,13 +10025,14 @@ rb_symbol_new_in_heap(VALUE name, ID id)
 {
     NEWOBJ_OF(sym, struct RSymbol, rb_cSymbol, T_SYMBOL);
     sym->name = name;
-    sym->sym_flags = is_notop_id(id) ? ID_SCOPE(id) : 0;
+    sym->sym_flags = is_notop_id(id) ? (id & ID_SCOPE_MASK) : 0;
     sym->pinned = 1;
+    sym->id = id;
     OBJ_FREEZE(sym->name);
     if ( 1 ) {
       char flags_str[128] = { 0 };
       static int once = 0;
- #define ID_SCOPE_X(X) if ( ID_SCOPE(sym->sym_flags) == X ) { strcat(flags_str, #X " "); }
+#define ID_SCOPE_X(X) if ( (sym->sym_flags & ID_SCOPE_MASK) == X ) { strcat(flags_str, #X " "); }
       ID_SCOPE_X(ID_LOCAL);
       ID_SCOPE_X(ID_INSTANCE);
       ID_SCOPE_X(ID_GLOBAL);
@@ -10047,8 +10054,10 @@ rb_symbol_new_in_heap(VALUE name, ID id)
 void
 Init_sym(void)
 {
+#if ! rb_ID_IS_VALUE
     global_symbols.sym_id = st_init_table_with_size(&symhash, 1000);
     global_symbols.id_str = st_init_numtable_with_size(1000);
+#endif
     global_symbols.str_sym = st_init_table_with_size(&symhash, 1000);
 #if ENABLE_SELECTOR_NAMESPACE
     global_symbols.ivar2_id = st_init_table_with_size(&ivar2_hash_type, 1000);
@@ -10067,7 +10076,9 @@ Init_sym(void)
 void
 rb_gc_mark_symbols(void)
 {
+#if ! rb_ID_IS_VALUE
     rb_mark_tbl(global_symbols.id_str);
+#endif
     rb_mark_tbl(global_symbols.str_sym);
     rb_gc_mark_locations(global_symbols.op_sym,
 			 global_symbols.op_sym + numberof(global_symbols.op_sym));
@@ -10251,10 +10262,15 @@ register_symid_str(ID id, VALUE str)
 	RUBY_DTRACE_SYMBOL_CREATE(RSTRING_PTR(str), rb_sourcefile(), rb_sourceline());
     }
 
+#if ! rb_ID_IS_VALUE
     st_add_direct(global_symbols.sym_id, (st_data_t)str, id);
     st_add_direct(global_symbols.id_str, id, (st_data_t)str);
+#endif
     sym = rb_symbol_new_in_heap(str, id);
     st_add_direct(global_symbols.str_sym, str, sym);
+#if rb_ID_IS_VALUE
+    id = sym;
+#endif
     return id;
 }
 
@@ -10298,7 +10314,11 @@ rb_intern3(const char *name, long len, rb_encoding *enc)
     rb_enc_associate(str, enc);
     OBJ_FREEZE(str);
 
+#if rb_ID_IS_VALUE
+    if (st_lookup(global_symbols.str_sym, str, &data))
+#else
     if (st_lookup(global_symbols.sym_id, str, &data))
+#endif
 	return (ID)data;
 
     str = rb_enc_str_new(name, len, enc); /* make true string */
@@ -10396,6 +10416,7 @@ intern_str(VALUE str)
     if (sym_check_asciionly(str)) symenc = rb_usascii_encoding();
   new_id:
     if (symenc != enc) rb_enc_associate(str, symenc);
+#if ! rb_ID_IS_VALUE
     if (global_symbols.last_id >= ~(ID)0 >> (ID_SCOPE_SHIFT+RUBY_SPECIAL_SHIFT)) {
 	if (len > 20) {
 	    rb_raise(rb_eRuntimeError, "symbol table overflow (symbol %.20s...)",
@@ -10407,6 +10428,7 @@ intern_str(VALUE str)
 	}
     }
     id |= ++global_symbols.last_id << ID_SCOPE_SHIFT;
+#endif
   id_register:
     return register_symid_str(id, str);
 }
@@ -10421,6 +10443,7 @@ rb_intern2(const char *name, long len)
 ID
 rb_intern(const char *name)
 {
+    fprintf(stderr, "  rb_intern(\"%s\" (%p)) =>", name, name);
     return rb_intern2(name, strlen(name));
 }
 
@@ -10454,7 +10477,11 @@ rb_intern_str(VALUE str)
 {
     st_data_t id;
 
+#if rb_ID_IS_VALUE
+    if (st_lookup(global_symbols.str_sym, str, &id))
+#else
     if (st_lookup(global_symbols.sym_id, str, &id))
+#endif
 	return (ID)id;
     return intern_str(rb_str_dup(str));
 }
@@ -10462,6 +10489,9 @@ rb_intern_str(VALUE str)
 VALUE
 rb_id2str(ID id)
 {
+#if rb_ID_IS_VALUE
+    return rb_str_dup(RSYMBOL(id)->name);
+#else
     st_data_t data;
 
     if (id < tLAST_TOKEN) {
@@ -10518,6 +10548,7 @@ rb_id2str(ID id)
         }
     }
     return 0;
+#endif
 }
 
 const char *
@@ -10529,12 +10560,21 @@ rb_id2name(ID id)
     return RSTRING_PTR(str);
 }
 
+#if rb_ID_IS_VALUE
+static int
+symbols_i(VALUE str, ID sym, VALUE ary)
+{
+    rb_ary_push(ary, sym);
+    return ST_CONTINUE;
+}
+#else
 static int
 symbols_i(VALUE sym, ID value, VALUE ary)
 {
     rb_ary_push(ary, ID2SYM(value));
     return ST_CONTINUE;
 }
+#endif
 
 /*
  *  call-seq:
@@ -10555,9 +10595,15 @@ symbols_i(VALUE sym, ID value, VALUE ary)
 VALUE
 rb_sym_all_symbols(void)
 {
+#if rb_ID_IS_VALUE
+    VALUE ary = rb_ary_new2(global_symbols.str_sym->num_entries);
+
+    st_foreach(global_symbols.str_sym, symbols_i, ary);
+#else
     VALUE ary = rb_ary_new2(global_symbols.sym_id->num_entries);
 
     st_foreach(global_symbols.sym_id, symbols_i, ary);
+#endif
     return ary;
 }
 
@@ -10637,7 +10683,11 @@ rb_check_id(volatile VALUE *namep)
 
     sym_check_asciionly(name);
 
+#if rb_ID_IS_VALUE
+    if (st_lookup(global_symbols.str_sym, (st_data_t)name, &id))
+#else
     if (st_lookup(global_symbols.sym_id, (st_data_t)name, &id))
+#endif
 	return (ID)id;
 
     if (rb_is_attrset_name(name)) {
@@ -10647,7 +10697,11 @@ rb_check_id(volatile VALUE *namep)
 	rb_enc_copy(localname, name);
 	OBJ_FREEZE(localname);
 
-	if (st_lookup(global_symbols.sym_id, (st_data_t)localname, &id)) {
+#if rb_ID_IS_VALUE
+        if (st_lookup(global_symbols.str_sym, (st_data_t)localname, &id)) {
+#else
+        if (st_lookup(global_symbols.sym_id, (st_data_t)localname, &id)) {
+#endif
 	    return rb_id_attrset((ID)id);
 	}
 	RB_GC_GUARD(name);
@@ -10666,12 +10720,20 @@ rb_check_id_cstr(const char *ptr, long len, rb_encoding *enc)
 
     sym_check_asciionly(name);
 
+#if rb_ID_IS_VALUE
+    if (st_lookup(global_symbols.str_sym, (st_data_t)name, &id))
+#else
     if (st_lookup(global_symbols.sym_id, (st_data_t)name, &id))
+#endif
 	return (ID)id;
 
     if (rb_is_attrset_name(name)) {
 	fake_str.as.heap.len = len - 1;
+#if rb_ID_IS_VALUE
+	if (st_lookup(global_symbols.str_sym, (st_data_t)name, &id)) {
+#else
 	if (st_lookup(global_symbols.sym_id, (st_data_t)name, &id)) {
+#endif
 	    return rb_id_attrset((ID)id);
 	}
     }

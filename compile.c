@@ -1925,7 +1925,7 @@ iseq_specialized_instruction(rb_iseq_t *iseq, INSN *iobj)
 	if (ci->blockiseq == 0 && (ci->flag & ~VM_CALL_ARGS_SKIP_SETUP) == 0) {
 	    switch (ci->orig_argc) {
 	      case 0:
-		switch (ci->mid) {
+		switch (SYM_ID(ci->mid)) {
 		  case idLength: SP_INSN(length); return COMPILE_OK;
 		  case idSize:	 SP_INSN(size);	  return COMPILE_OK;
 		  case idEmptyP: SP_INSN(empty_p);return COMPILE_OK;
@@ -1934,7 +1934,7 @@ iseq_specialized_instruction(rb_iseq_t *iseq, INSN *iobj)
 		}
 		break;
 	      case 1:
-		switch (ci->mid) {
+		switch (SYM_ID(ci->mid)) {
 		  case idPLUS:	 SP_INSN(plus);	  return COMPILE_OK;
 		  case idMINUS:	 SP_INSN(minus);  return COMPILE_OK;
 		  case idMULT:	 SP_INSN(mult);	  return COMPILE_OK;

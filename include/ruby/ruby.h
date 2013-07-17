@@ -349,17 +349,22 @@ rb_long2int_inline(long n)
 
 #define IMMEDIATE_P(x) ((VALUE)(x) & IMMEDIATE_MASK)
 
-#define rb_ID_IS_VALUE 0
+#ifndef rb_ID_IS_VALUE
+#define rb_ID_IS_VALUE 1
+#endif
+
 #if rb_ID_IS_VALUE
-#define rb_SYMBOL_IMMEDIATE 0
+#define rb_SYMBOL_IMMEDIATE(X) 0
 #define SYMBOL_P(x) (RB_TYPE_P((x), T_SYMBOL) && CLASS_OF(x) == rb_cSymbol)
 #define ID2SYM(x) (x)
 #define SYM2ID(x) (x)
+#define SYM_ID(x) (RSYMBOL(x)->id)
 #else
-#define rb_SYMBOL_IMMEDIATE 1
+#define rb_SYMBOL_IMMEDIATE(X) (X)
 #define SYMBOL_P(x) (((VALUE)(x)&~((~(VALUE)0)<<RUBY_SPECIAL_SHIFT))==SYMBOL_FLAG)
 #define ID2SYM(x) (((VALUE)(x)<<RUBY_SPECIAL_SHIFT)|SYMBOL_FLAG)
 #define SYM2ID(x) RSHIFT((unsigned long)(x),RUBY_SPECIAL_SHIFT)
+#define SYM_ID(x) (x)
 #endif
 
 extern VALUE rb_intern_char(int c);
@@ -938,6 +943,7 @@ struct RSymbol {
     VALUE name;
     unsigned int sym_flags : 4; /* ID_SCOPE */
     unsigned int pinned : 1;
+    VALUE id;
 };
 
 #define RARRAY_EMBED_LEN_MAX 3
@@ -1682,7 +1688,7 @@ rb_class_of(VALUE obj)
 	if (FIXNUM_P(obj)) return rb_cFixnum;
 	if (FLONUM_P(obj)) return rb_cFloat;
 	if (obj == Qtrue)  return rb_cTrueClass;
-	if (rb_SYMBOL_IMMEDIATE && SYMBOL_P(obj)) return rb_cSymbol;
+	if (rb_SYMBOL_IMMEDIATE(SYMBOL_P(obj))) return rb_cSymbol;
     }
     else if (!RTEST(obj)) {
 	if (obj == Qnil)   return rb_cNilClass;
@@ -1698,7 +1704,7 @@ rb_type(VALUE obj)
 	if (FIXNUM_P(obj)) return T_FIXNUM;
         if (FLONUM_P(obj)) return T_FLOAT;
         if (obj == Qtrue)  return T_TRUE;
-	if (rb_SYMBOL_IMMEDIATE && SYMBOL_P(obj)) return T_SYMBOL;
+	if (rb_SYMBOL_IMMEDIATE(SYMBOL_P(obj))) return T_SYMBOL;
 	if (obj == Qundef) return T_UNDEF;
     }
     else if (!RTEST(obj)) {
@@ -1716,7 +1722,7 @@ rb_type(VALUE obj)
 	((type) == T_FALSE) ? ((obj) == Qfalse) : \
 	((type) == T_NIL) ? ((obj) == Qnil) : \
 	((type) == T_UNDEF) ? ((obj) == Qundef) : \
-	((type) == T_SYMBOL) ? SYMBOL_P(obj) : \
+        (rb_SYMBOL_IMMEDIATE(type == T_SYMBOL)) ? rb_SYMBOL_IMMEDIATE(SYMBOL_P(obj)) : \
         ((type) == T_FLOAT) ? RB_FLOAT_TYPE_P(obj) : \
 	(!SPECIAL_CONST_P(obj) && BUILTIN_TYPE(obj) == (type)))
 

@@ -1687,11 +1687,11 @@ Init_eval_method(void)
 
     {
 #define REPLICATE_METHOD(klass, id, noex) \
-	rb_method_entry_set((klass), (id), \
-			    rb_method_entry((klass), (id), 0), \
+	rb_method_entry_set((klass), rb_intern(id), \
+			    rb_method_entry((klass), rb_intern(id), 0), \
 			    (rb_method_flag_t)(noex | NOEX_BASIC | NOEX_NOREDEF))
-	REPLICATE_METHOD(rb_eException, idMethodMissing, NOEX_PRIVATE);
-	REPLICATE_METHOD(rb_eException, idRespond_to, NOEX_PUBLIC);
-	REPLICATE_METHOD(rb_eException, idRespond_to_missing, NOEX_PUBLIC);
+	REPLICATE_METHOD(rb_eException, "method_missing", NOEX_PRIVATE);
+	REPLICATE_METHOD(rb_eException, "respond_to?", NOEX_PUBLIC);
+	REPLICATE_METHOD(rb_eException, "respond_to_missing?", NOEX_PUBLIC);
     }
 }
